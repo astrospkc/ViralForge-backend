@@ -13,9 +13,6 @@ import (
 )
 var Db *bun.DB
 
-
-
-
 func PgConnect() {
 	ctx := context.Background()
 	envs:=env.NewEnv()

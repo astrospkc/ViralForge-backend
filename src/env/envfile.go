@@ -11,6 +11,7 @@ type ENV struct {
 	SUPABASE_PROJECT_URL		string `mapstructure:"SUPABASE_DB_URL"`
 	SUPABASE_PUBLISHABLE_KEY	string `mapstructure:"SUPABASE_DB_URL"`
 	SUPABASE_ANON_KEY			string `mapstructure:"SUPABASE_DB_URL"`
+	JWT_KEY						string `mapstructire:"JWT_KEY"`
 }
 
 func NewEnv() *ENV{
