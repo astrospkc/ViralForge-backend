@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"time"
 	"viralforge/src/connect"
 	"viralforge/src/env"
@@ -14,18 +15,19 @@ import (
 type RegisterResponse struct{
 	Message			string
 	Data 			models.User
+	Token  			string
 }
 
-var JWT_KEY string
+var Jwt_key string
 
 type Claims struct{
-	UserId int64	`json:"user_id`
+	UserId int64	`json:"user_id"`
 	jwt.RegisteredClaims
 }
 
 func GenerateToken(userId int64) (string, error){
 	envs:=env.NewEnv()
-	JWT_KEY = envs.JWT_KEY
+	Jwt_key = envs.JWT_KEY
 	expirationTime:= time.Now().Add(5*time.Hour)
 	 claims := &Claims{
         UserId: userId,
@@ -36,7 +38,14 @@ func GenerateToken(userId int64) (string, error){
         },
     }
 	token:=jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(JWT_KEY)
+	fmt.Println("token: ", token)
+	tokenString, err := token.SignedString([]byte(Jwt_key))
+    if err != nil {
+        return "", fmt.Errorf("failed to sign token: %w", err)
+    }
+    
+    fmt.Printf("Final JWT token: %s\n", tokenString)
+    return tokenString, nil
 }
 
 func HashPassword(password string) (string, error) {
@@ -99,13 +108,25 @@ func RegisterUser() fiber.Handler{
 				Data:models.User{},
 			})
 		}
-		
-		
 
+		token, err:= GenerateToken(user.ID)
+		if err!=nil{
+			_, err = connect.Db.NewDelete().
+				Model((*models.User)(nil)).
+				Where("email = ?", userEmail).
+				Exec(c.Context())
+			return c.Status(fiber.StatusBadRequest).JSON(RegisterResponse{
+				Message: "failed to generate token",
+			})
+		}
 
+		
+	
 		return c.Status(fiber.StatusOK).JSON(RegisterResponse{
 			Message:"successful fetching",
 			Data:*user,
+			Token:token,
 		})
 	}
 }
+
