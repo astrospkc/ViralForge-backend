@@ -12,10 +12,19 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-type RegisterResponse struct{
+type AuthResponse struct{
 	Message			string
-	Data 			models.User
+	Data 			UserResponse
 	Token  			string
+	Success 		bool
+}
+
+type UserResponse struct{
+	ID   	int64 
+	Name    string 
+	Email   string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 var Jwt_key string
@@ -63,9 +72,9 @@ func RegisterUser() fiber.Handler{
 		var body models.User
 
 		if err:= c.Bind().Body(&body); err!=nil{
-			return c.Status(fiber.StatusBadRequest).JSON(RegisterResponse{
+			return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
 					Message: "null value",
-					Data: models.User{},
+					Data: UserResponse{},
 				},
 			)
 		}
@@ -73,13 +82,14 @@ func RegisterUser() fiber.Handler{
 		userEmail:=body.Email 
 		exists,err := connect.Db.NewSelect().Model((*models.User)(nil)).Where("email = ?",userEmail).Exists(c.Context())
 		if err!=nil{
-			return c.Status(fiber.StatusBadRequest).JSON(RegisterResponse{
+			return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
 				Message: "Failed to check user",
-				Data:models.User{},
+				Data:UserResponse{},
 			})
 		}
+		fmt.Println("user exists; ", exists)
 		if exists{
-			return c.Status(fiber.StatusBadRequest).JSON(RegisterResponse{
+			return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
 				Message: "user already exist",
 			})
 		}
@@ -88,9 +98,9 @@ func RegisterUser() fiber.Handler{
 
 		hashPassword,err:= HashPassword(body.Password)
 		if err!=nil{
-			return c.Status(fiber.StatusBadRequest).JSON(RegisterResponse{
+			return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
 				Message: "Failed to hash password",
-				Data:models.User{},
+				Data:UserResponse{},
 			})
 		}
 
@@ -103,9 +113,9 @@ func RegisterUser() fiber.Handler{
 		// create user
 		_,err= connect.Db.NewInsert().Model(user).Returning("id, name, email, created_at, updated_at").Exec(c.Context())
 		if err!=nil{
-			return c.Status(fiber.StatusBadRequest).JSON(RegisterResponse{
+			return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
 				Message: "could not insert user in db",
-				Data:models.User{},
+				Data:UserResponse{},
 			})
 		}
 
@@ -115,18 +125,79 @@ func RegisterUser() fiber.Handler{
 				Model((*models.User)(nil)).
 				Where("email = ?", userEmail).
 				Exec(c.Context())
-			return c.Status(fiber.StatusBadRequest).JSON(RegisterResponse{
+			return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
 				Message: "failed to generate token",
 			})
 		}
 
+		resp_user:=UserResponse{
+			ID: user.ID,
+			Name: user.Name,
+			Email: user.Email,
+			CreatedAt: user.CreatedAt,
+			UpdatedAt: user.UpdatedAt,
+		}
+
 		
 	
-		return c.Status(fiber.StatusOK).JSON(RegisterResponse{
+		return c.Status(fiber.StatusOK).JSON(AuthResponse{
 			Message:"successful fetching",
-			Data:*user,
+			Data:resp_user,
 			Token:token,
 		})
+	}
+}
+
+
+
+func LoginUser() fiber.Handler{
+	return func(c fiber.Ctx) error{
+		
+		var body struct{
+			Email	string 
+			Password string
+		}
+
+		if err := c.Bind().Body(&body); err!=nil{
+			return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
+				Message: "Please provide email or password or both",
+			})
+		}
+
+		// verify password and return the result with token
+		var user models.User
+		err := connect.Db.NewSelect().Model((&user)).Where("email = ?",body.Email).Scan(c.Context())
+		if err!=nil{
+			return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
+				Message: "failed to fetch",
+			})
+		}
+
+		isPasswordCorrect := CheckPasswordHash(body.Password, user.Password)
+		if !isPasswordCorrect{
+			return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
+				Message:"Password is incorrect",
+				Success:false,
+			})
+		}
+
+		tokenString, err := GenerateToken(user.ID)
+		resp_user:=UserResponse{
+			ID:user.ID,
+			Name: user.Name,
+			Email:user.Email,
+			CreatedAt: user.CreatedAt,
+			UpdatedAt: user.UpdatedAt,
+
+		}
+
+		return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
+			Message: "logged in successfully",
+			Success: true,
+			Data:  resp_user,
+			Token: tokenString,
+		})
+		
 	}
 }
 
