@@ -13,4 +13,7 @@ func NormalRoutes(app *fiber.App){
 	auth.Post("/register",handlers.RegisterUser())
 	auth.Post("/login", handlers.LoginUser())
 
+	video:=app.Group("video/v1")
+	video.Post("/get_presigned_url", handlers.GetPresignedUrl())
+
 }

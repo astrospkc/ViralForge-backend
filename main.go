@@ -13,7 +13,7 @@ func main(){
 	connect.PgConnect()
 
 	app.Use(cors.New(cors.Config{
-    AllowOrigins: []string{"http://localhost:3000"},
+    AllowOrigins: []string{"http://localhost:5173"},
     AllowHeaders: []string{"Origin", "Content-Type", "Accept"},
 }))
 	routes.NormalRoutes(app)

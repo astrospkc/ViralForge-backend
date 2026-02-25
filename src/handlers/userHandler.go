@@ -172,6 +172,7 @@ func LoginUser() fiber.Handler{
 				Message: "failed to fetch",
 			})
 		}
+		
 
 		isPasswordCorrect := CheckPasswordHash(body.Password, user.Password)
 		if !isPasswordCorrect{
@@ -191,7 +192,7 @@ func LoginUser() fiber.Handler{
 
 		}
 
-		return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
+		return c.Status(fiber.StatusOK).JSON(AuthResponse{
 			Message: "logged in successfully",
 			Success: true,
 			Data:  resp_user,

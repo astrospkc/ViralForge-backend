@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 )
@@ -26,6 +27,7 @@ func GetObjectKey(videoname string) string{
 type GetPresignedUrlResponse struct {
 	Messsage string 
 	Url      string
+	Code     int16
 }
 
 func GetPresignedUrl() fiber.Handler{
@@ -44,21 +46,26 @@ func GetPresignedUrl() fiber.Handler{
 		log.Fatal("Failed to load config")
 	}
 	var req struct{
-		VideoFileKey string `json:"videoFileKey"`
+		VideoFileKey string `json:"filename"`
+		ContentType string  `json:"contentType"`
 	}
 	if err:=c.Bind().Body(&req); err!=nil{
 		return c.Status(fiber.StatusBadRequest).JSON(GetPresignedUrlResponse{
 			Messsage: "Failed to fetch the video file. Invalid request body.",
+			Code:400,
 		})
 	}
 
 	client:= s3.NewFromConfig(cfg)
 	presignClient := s3.NewPresignClient(client)
 	
+	
 	objectKey:= GetObjectKey(req.VideoFileKey)
 	params:=&s3.PutObjectInput{
 		Bucket: aws.String(bucketname),
 		Key: aws.String(objectKey),
+		ContentType:&req.ContentType ,
+		ACL:         types.ObjectCannedACLPublicRead,
 	}
 	presignedUrl, err:=presignClient.PresignPutObject(context.TODO(), params,func(opts *s3.PresignOptions){
 		opts.Expires = time.Hour
@@ -67,6 +74,7 @@ func GetPresignedUrl() fiber.Handler{
 	if err!=nil{
 		return c.Status(fiber.StatusBadRequest).JSON(GetPresignedUrlResponse{
 			Messsage: "Failed to generate presignedUrl",
+			Code:500,
 
 		})
 	}
@@ -74,6 +82,7 @@ func GetPresignedUrl() fiber.Handler{
 	return c.Status(fiber.StatusOK).JSON(GetPresignedUrlResponse{
 		Messsage: "Successful with presigned url",
 		Url: presignedUrl.URL,
+		Code: 200,
 	})
 
 	}
