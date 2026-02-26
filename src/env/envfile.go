@@ -13,8 +13,8 @@ type ENV struct {
 	SUPABASE_ANON_KEY			string `mapstructure:"SUPABASE_DB_URL"`
 	JWT_KEY						string `mapstructure:"JWT_KEY"`
 	S3_BUCKET_NAME				string `mapstructure:"S3_BUCKET_NAME"`
-	AWS_SECRET_ACCESS_KEY		string `mapstructure:"S3_BUCKET_NAME"`
-	AWS_ACCESS_KEY_ID			string `mapstructure:"S3_BUCKET_NAME"`
+	AWS_SECRET_ACCESS_KEY		string `mapstructure:"AWS_SECRET_ACCESS_KEY"`
+	AWS_ACCESS_KEY_ID			string `mapstructure:"AWS_ACCESS_KEY_ID"`
 }
 
 func NewEnv() *ENV{

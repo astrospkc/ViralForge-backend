@@ -20,6 +20,7 @@ func FetchUser() fiber.Handler{
 			})
 		}
 		tknString := strings.TrimPrefix(authHeader, "Bearer ")
+		// fmt.Println("token string: ", tknString)
 
 		secret := envs.JWT_KEY
 		if secret == "" {
@@ -46,7 +47,8 @@ func FetchUser() fiber.Handler{
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error": "Invalid token claims",
 			})
-		}
+		} 
+		// fmt.Println("claims: ", claims)
 		if exp, ok := claims["exp"].(float64); ok && time.Now().Unix() > int64(exp) {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error": "Token expired",

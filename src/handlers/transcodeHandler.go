@@ -11,7 +11,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 )
@@ -20,7 +19,7 @@ import (
 func GetObjectKey(videoname string) string{
 	
 		id := uuid.New().String()
-		return fmt.Sprintf("uploads/%s-%s", id, videoname)
+		return fmt.Sprintf("videos/%s-%s", id, videoname)
 	
 }
 
@@ -37,10 +36,12 @@ func GetPresignedUrl() fiber.Handler{
 		aws_access_key:=envs.AWS_ACCESS_KEY_ID
 		aws_secret_key:=envs.AWS_SECRET_ACCESS_KEY 
 		bucketname := envs.S3_BUCKET_NAME 
+		
+		fmt.Println("aws credentials: ", aws_access_key, aws_secret_key, bucketname)
 
 		cfg, err := config.LoadDefaultConfig(context.TODO(),
 		config.WithRegion("us-east-1"),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(aws_access_key, aws_secret_key, "")),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(aws_access_key,aws_secret_key,"")),
 	)
 	if err!=nil{
 		log.Fatal("Failed to load config")
@@ -65,7 +66,7 @@ func GetPresignedUrl() fiber.Handler{
 		Bucket: aws.String(bucketname),
 		Key: aws.String(objectKey),
 		ContentType:&req.ContentType ,
-		ACL:         types.ObjectCannedACLPublicRead,
+		// ACL:         types.ObjectCannedACLPublicRead,
 	}
 	presignedUrl, err:=presignClient.PresignPutObject(context.TODO(), params,func(opts *s3.PresignOptions){
 		opts.Expires = time.Hour

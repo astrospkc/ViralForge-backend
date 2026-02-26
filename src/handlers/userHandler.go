@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 	"viralforge/src/connect"
 	"viralforge/src/env"
@@ -43,17 +44,17 @@ func GenerateToken(userId int64) (string, error){
         RegisteredClaims: jwt.RegisteredClaims{
             ExpiresAt: jwt.NewNumericDate(expirationTime),
             IssuedAt:  jwt.NewNumericDate(time.Now()),
-            Subject:   "user authentication",
+            Subject:   "user_authentication",
         },
     }
 	token:=jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	fmt.Println("token: ", token)
+	
 	tokenString, err := token.SignedString([]byte(Jwt_key))
     if err != nil {
         return "", fmt.Errorf("failed to sign token: %w", err)
     }
     
-    fmt.Printf("Final JWT token: %s\n", tokenString)
+    
     return tokenString, nil
 }
 
@@ -79,6 +80,7 @@ func RegisterUser() fiber.Handler{
 			)
 		}
 		// 1. first check if user exists
+		fmt.Println("user provided details: ", body)
 		userEmail:=body.Email 
 		exists,err := connect.Db.NewSelect().Model((*models.User)(nil)).Where("email = ?",userEmail).Exists(c.Context())
 		if err!=nil{
@@ -89,7 +91,7 @@ func RegisterUser() fiber.Handler{
 		}
 		fmt.Println("user exists; ", exists)
 		if exists{
-			return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
+			return c.Status(fiber.StatusConflict).JSON(AuthResponse{
 				Message: "user already exist",
 			})
 		}
@@ -144,6 +146,7 @@ func RegisterUser() fiber.Handler{
 			Message:"successful fetching",
 			Data:resp_user,
 			Token:token,
+			Success: true,
 		})
 	}
 }
@@ -168,7 +171,7 @@ func LoginUser() fiber.Handler{
 		var user models.User
 		err := connect.Db.NewSelect().Model((&user)).Where("email = ?",body.Email).Scan(c.Context())
 		if err!=nil{
-			return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
+			return c.Status(fiber.StatusNotFound).JSON(AuthResponse{
 				Message: "failed to fetch",
 			})
 		}
@@ -202,3 +205,54 @@ func LoginUser() fiber.Handler{
 	}
 }
 
+
+type GetUserResponse struct{
+	Data UserResponse
+	Success bool
+	Code    int16
+}
+
+func GetUserFromId() fiber.Handler{
+	return func(c fiber.Ctx) error{
+		user_id , err := FetchUserId(c)
+		if err!=nil{
+			return c.Status(fiber.StatusBadRequest).JSON(GetUserResponse{
+				Success: false,
+				Code:400,
+			})
+		}
+		fmt.Println("user id in get user function: ", user_id)
+		u_id, err := strconv.Atoi(user_id)
+		if err != nil {
+			// Handle error if user_id is not a valid number
+			fmt.Println("Conversion error:", err)
+			return c.Status(fiber.StatusBadRequest).JSON(GetUserResponse{
+				Success: false,
+				Code:400,
+			})
+		}
+		var user models.User
+		err = connect.Db.NewSelect().Model((&user)).Where("id = ?",u_id).Scan(c.Context())
+		if err!=nil{
+			return c.Status(fiber.StatusBadRequest).JSON(GetUserResponse{
+				Success: false,
+				Code:400,
+			})
+		}
+
+		resp_user := UserResponse{
+			ID: user.ID,
+			Name:user.Name,
+			Email:user.Email,
+			CreatedAt: user.CreatedAt,
+			UpdatedAt: user.UpdatedAt,
+		}
+
+		return c.Status(fiber.StatusAccepted).JSON(GetUserResponse{
+			Data:resp_user,
+			Success: true,
+			Code: 200,
+		})
+
+	}
+}
