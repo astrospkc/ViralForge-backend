@@ -19,5 +19,6 @@ func NormalRoutes(app *fiber.App){
 
 	video:=app.Group("video/v1", middleware.FetchUser())
 	video.Post("/get_presigned_url", handlers.GetPresignedUrl())
+	video.Post("/create_video", handlers.AddVideoFileKeyToDB())
 
 }

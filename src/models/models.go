@@ -19,7 +19,18 @@ type User struct {
 
 
 type VideoUpload struct {
-	bun.BaseModel `bun:"table:video_uploads,alias:vu"`
+	bun.BaseModel `bun:"table:video_uploads,alias:vdu"`
+
+	ID		int64		`bun:",pk,autoincrement" json:"id"`
+	UserID    int64     `bun:",notnull" json:"user_id"`
+	FileURL string 		`bun:",notnull" json:"file_url"`
+	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp"`
+    UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp"`
+
+}
+
+type VideoDetailsUpload struct {
+	bun.BaseModel `bun:"table:videodetails_uploads,alias:vu"`
 
 	// Primary Keys
 	ID        int64     `bun:",pk,autoincrement" json:"id"`
@@ -104,6 +115,6 @@ type Clip struct {
 	CompletedAt    *time.Time `bun:",nullzero" json:"completed_at,omitempty"`
 	
 	// Relations
-	VideoUpload    *VideoUpload `bun:"rel:belongs-to,join:video_upload_id=id" json:"video_upload,omitempty"`
+	VideoUpload    *VideoDetailsUpload `bun:"rel:belongs-to,join:videodetails_upload_id=id" json:"videodetails_upload,omitempty"`
 	User           *User        `bun:"rel:belongs-to,join:user_id=id" json:"user,omitempty"`
 }

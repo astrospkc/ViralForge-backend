@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"time"
+	"viralforge/src/connect"
 	"viralforge/src/env"
+	"viralforge/src/models"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -90,3 +93,73 @@ func GetPresignedUrl() fiber.Handler{
 }
 
 // get the video and then start transcoding
+type VideoUploadResponse struct{
+	Data 	models.VideoUpload
+	Code    int64
+	Success  bool
+	Message  string
+}
+
+func AddVideoFileKeyToDB() fiber.Handler{
+	return func(c fiber.Ctx) error{
+		u_id, err:=FetchUserId(c)
+		if err!=nil{
+			return c.Status(fiber.StatusBadRequest).JSON(VideoUploadResponse{
+				Data:models.VideoUpload{},
+				Code:400,
+				Success:false,
+				Message: "Failed to fetch userid",
+			})
+		}
+
+		var body struct{
+			filename string
+		}
+
+		if err:=c.Bind().Body(&body); err!=nil{
+			return c.Status(fiber.StatusBadRequest).JSON(VideoUploadResponse{
+				Data:models.VideoUpload{},
+				Code:400,
+				Success:false,
+				Message: "Failed request body",
+			})
+		}
+
+		getObjectKey:= GetObjectKey(body.filename)
+		// fmt.Println("getobject key: ", getObjectKey)
+		if getObjectKey==""{
+			return c.Status(fiber.StatusBadRequest).JSON(VideoUploadResponse{
+				Data:models.VideoUpload{},
+				Code:400,
+				Success:false,
+				Message: "provide the correct filename",
+			})
+		}
+		userid,_:= strconv.Atoi(u_id)
+		videoUpload:=&models.VideoUpload{
+			UserID: int64(userid),
+			FileURL: getObjectKey,
+		}
+
+		_, err = connect.Db.NewInsert().Model(videoUpload).Returning("*").Exec(c.Context())
+		if err!=nil{
+			fmt.Println("error while inserting it into db")
+			return c.Status(fiber.StatusBadRequest).JSON(VideoUploadResponse{
+				Data:models.VideoUpload{},
+				Code:400,
+				Success:false,
+				Message: "Failed to insert vidoe file",
+			})
+		}
+
+		return c.Status(fiber.StatusAccepted).JSON(VideoUploadResponse{
+			Data:*videoUpload,
+			Code:200,
+			Success:true,
+			Message: "successfully inserted vidoe file",
+		})
+		
+
+
+	}
+}

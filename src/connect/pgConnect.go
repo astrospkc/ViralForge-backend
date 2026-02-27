@@ -23,5 +23,6 @@ func PgConnect() {
 	Db= bun.NewDB(sqldb, pgdialect.New())
 
 	Db.NewCreateTable().Model((*models.User)(nil)).Exec(ctx)
+	Db.NewCreateTable().Model((*models.VideoUpload)(nil)).Exec(ctx)
 
 }
