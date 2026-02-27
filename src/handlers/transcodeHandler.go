@@ -92,6 +92,49 @@ func GetPresignedUrl() fiber.Handler{
 	}
 }
 
+
+func GetDownloadUrl() fiber.Handler {
+    return func(c fiber.Ctx) error {
+		envs:= env.NewEnv()
+        objectKey := c.Params("objectKey")
+
+		// setup AWS config
+        cfg, err := config.LoadDefaultConfig(context.TODO(),
+            config.WithRegion("us-east-1"),
+            config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+                envs.AWS_ACCESS_KEY_ID,
+                envs.AWS_SECRET_ACCESS_KEY,
+                "",
+            )),
+        )
+        if err != nil {
+            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+                "message": "failed to load aws config",
+            })
+        }
+
+        presignClient := s3.NewPresignClient(s3.NewFromConfig(cfg))
+        presignedUrl, err := presignClient.PresignGetObject(context.TODO(),
+            &s3.GetObjectInput{
+                Bucket: aws.String(envs.S3_BUCKET_NAME),
+                Key:    aws.String(objectKey),
+            },
+            func(opts *s3.PresignOptions) {
+                opts.Expires = 15 * time.Minute
+            },
+        )
+        if err != nil {
+            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+                "message": "failed to generate download url",
+            })
+        }
+
+        return c.Status(fiber.StatusOK).JSON(fiber.Map{
+            "url": presignedUrl.URL,
+        })
+    }
+}
+
 // get the video and then start transcoding
 type VideoUploadResponse struct{
 	Data 	models.VideoUpload
@@ -99,6 +142,8 @@ type VideoUploadResponse struct{
 	Success  bool
 	Message  string
 }
+
+
 
 func AddVideoFileKeyToDB() fiber.Handler{
 	return func(c fiber.Ctx) error{
@@ -158,8 +203,52 @@ func AddVideoFileKeyToDB() fiber.Handler{
 			Success:true,
 			Message: "successfully inserted vidoe file",
 		})
-		
-
 
 	}
 }
+
+type GetListOfVideoFilesResponse struct{
+	VideoFiles	[]models.VideoUpload 
+	Success 	bool 
+	Code        int32
+}
+func GetListOfVideoFiles() fiber.Handler{
+	return func (c fiber.Ctx) error{
+		u_id, err:= FetchUserId(c)
+		
+		if err!=nil{
+			return c.Status(fiber.StatusBadRequest).JSON(GetListOfVideoFilesResponse{
+				VideoFiles: []models.VideoUpload{},
+				Success: false,
+				Code:400,
+			})
+		}
+
+		
+
+		var videoFiles []models.VideoUpload
+
+		err = connect.Db.NewSelect().
+			Model(&videoFiles).
+			Where("user_id = ?", u_id).
+			Scan(c.Context())
+
+		
+
+		if err!=nil{
+			return c.Status(fiber.StatusBadRequest).JSON(GetListOfVideoFilesResponse{
+				VideoFiles: []models.VideoUpload{},
+				Success: false,
+				Code:400,
+			})
+		}
+
+		return c.Status(fiber.StatusAccepted).JSON(GetListOfVideoFilesResponse{
+			VideoFiles: videoFiles,
+			Success: true,
+			Code:200,
+		})
+
+	}
+}
+
