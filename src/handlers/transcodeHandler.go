@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
+	ffmpeg "github.com/u2takey/ffmpeg-go"
 )
 
 
@@ -94,16 +95,10 @@ func GetPresignedUrl() fiber.Handler{
 }
 
 
-func GetDownloadUrl() fiber.Handler {
-    return func(c fiber.Ctx) error {
-		fmt.Println("get download url")
-		envs:= env.NewEnv()
-		object_key := c.Query("objectKey")
-		fmt.Println("object key: ", object_key)
-		// setup AWS config
+func DownlaodFromS3( objectKey string) (string, error){
+	envs:=env.NewEnv()
 
-		
-        cfg, err := config.LoadDefaultConfig(context.TODO(),
+	cfg, err := config.LoadDefaultConfig(context.TODO(),
             config.WithRegion("us-east-1"),
             config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
                 envs.AWS_ACCESS_KEY_ID,
@@ -112,16 +107,14 @@ func GetDownloadUrl() fiber.Handler {
             )),
         )
         if err != nil {
-            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-                "message": "failed to load aws config",
-            })
+            return "failed to load aws config", err
         }
 
-        presignClient := s3.NewPresignClient(s3.NewFromConfig(cfg))
+		presignClient := s3.NewPresignClient(s3.NewFromConfig(cfg))
         presignedUrl, err := presignClient.PresignGetObject(context.TODO(),
             &s3.GetObjectInput{
                 Bucket: aws.String(envs.S3_BUCKET_NAME),
-                Key:    aws.String(object_key),
+                Key:    aws.String(objectKey),
 				
             },
             func(opts *s3.PresignOptions) {
@@ -129,13 +122,29 @@ func GetDownloadUrl() fiber.Handler {
             },
         )
         if err != nil {
-            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-                "message": "failed to generate download url",
-            })
+            return "failed to generate download url", err
         }
 
+		return presignedUrl.URL, err
+
+}
+
+func GetDownloadUrl() fiber.Handler {
+    return func(c fiber.Ctx) error {
+		fmt.Println("get download url")
+		object_key := c.Query("objectKey")
+		fmt.Println("object key: ", object_key)
+		// setup AWS config
+
+		presigned_url, err:= DownlaodFromS3(object_key)
+		if err!=nil{
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"Message":"Failed to generate presigned url",
+			})
+		}
+        
         return c.Status(fiber.StatusOK).JSON(fiber.Map{
-            "url": presignedUrl.URL,
+            "url": presigned_url,
         })
     }
 }
@@ -149,7 +158,7 @@ type VideoUploadResponse struct{
 }
 
 
-
+//TODO: add uploaded video to job queue ( not directly to the db , worker will do the job of inserting the video to s3 , optional : in transcoding job, start transcoding) for uploading videos to the s3 and do not wan
 func AddVideoFileKeyToDB() fiber.Handler{
 	return func(c fiber.Ctx) error{
 		u_id, err:=FetchUserId(c)
@@ -270,5 +279,44 @@ func GetListOfVideoFiles() fiber.Handler{
 			Code:200,
 		})
 	}
+}
+
+func VideoTranscode() fiber.Handler{
+	return func(c fiber.Ctx) error{
+		object_key := c.Query("objectKey")
+		getTranscodeVideo:=GetTranscodeVideo(object_key)
+
+	}
+	
+
+}
+
+func TranscodeVideo(inputKey string, outputKey string) error {
+    // download from S3
+    inputFile := downloadFromS3(inputKey)
+    
+    // transcode to multiple qualities
+    qualities := []Quality{
+        {Resolution: "1920x1080", Bitrate: "4000k", Name: "1080p"},
+        {Resolution: "1280x720",  Bitrate: "2500k", Name: "720p"},
+        {Resolution: "854x480",   Bitrate: "1000k", Name: "480p"},
+    }
+    
+    for _, q := range qualities {
+        err := ffmpeg.Input(inputFile).
+            Output(fmt.Sprintf("output_%s.mp4", q.Name), ffmpeg.KwArgs{
+                "vf":      fmt.Sprintf("scale=%s", q.Resolution),
+                "b:v":     q.Bitrate,
+                "c:v":     "libx264",  // H.264 codec
+                "c:a":     "aac",      // AAC audio
+                "preset":  "fast",     // encoding speed vs compression
+                "crf":     "23",       // quality level
+            }).
+            OverWriteOutput().
+            Run()
+        
+        // upload each quality to S3
+        uploadToS3(fmt.Sprintf("output_%s.mp4", q.Name))
+    }
 }
 
