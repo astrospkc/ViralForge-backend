@@ -17,10 +17,12 @@ func NormalRoutes(app *fiber.App){
 
 
 
-	video:=app.Group("video/v1", middleware.FetchUser())
+	video:=app.Group("/video/v1", middleware.FetchUser())
+	video.Get("/get_all_videos", handlers.GetListOfVideoFiles())
+	video.Get("/get_download_url", handlers.GetDownloadUrl())
 	video.Post("/get_presigned_url", handlers.GetPresignedUrl())
 	video.Post("/create_video", handlers.AddVideoFileKeyToDB())
-	video.Get("/get_all_videos", handlers.GetListOfVideoFiles())
-	video.Get("/get_download_url/:objectKey", handlers.GetDownloadUrl())
+
+	
 
 }

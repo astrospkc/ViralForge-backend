@@ -13,8 +13,8 @@ type User struct {
     Name      string    `bun:",notnull"`
     Email     string    `bun:",unique,notnull"`
 	Password  string    
-    CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp"`
-    UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp"`
+    CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
+    UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
 }
 
 
@@ -24,8 +24,9 @@ type VideoUpload struct {
 	ID		int64		`bun:",pk,autoincrement" json:"id"`
 	UserID    int64     `bun:",notnull" json:"user_id"`
 	FileURL string 		`bun:",notnull" json:"file_url"`
-	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp"`
-    UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp"`
+	FileType string   `bun:",notnull" json:"file_type"`
+	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
+    UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
 
 }
 

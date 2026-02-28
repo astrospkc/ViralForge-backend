@@ -20,7 +20,7 @@ import (
 
 
 func GetObjectKey(videoname string) string{
-	
+
 		id := uuid.New().String()
 		return fmt.Sprintf("videos/%s-%s", id, videoname)
 	
@@ -29,6 +29,7 @@ func GetObjectKey(videoname string) string{
 type GetPresignedUrlResponse struct {
 	Messsage string 
 	Url      string
+	ObjectKey string
 	Code     int16
 }
 
@@ -40,7 +41,6 @@ func GetPresignedUrl() fiber.Handler{
 		aws_secret_key:=envs.AWS_SECRET_ACCESS_KEY 
 		bucketname := envs.S3_BUCKET_NAME 
 		
-		fmt.Println("aws credentials: ", aws_access_key, aws_secret_key, bucketname)
 
 		cfg, err := config.LoadDefaultConfig(context.TODO(),
 		config.WithRegion("us-east-1"),
@@ -86,6 +86,7 @@ func GetPresignedUrl() fiber.Handler{
 	return c.Status(fiber.StatusOK).JSON(GetPresignedUrlResponse{
 		Messsage: "Successful with presigned url",
 		Url: presignedUrl.URL,
+		ObjectKey:objectKey,
 		Code: 200,
 	})
 
@@ -95,10 +96,13 @@ func GetPresignedUrl() fiber.Handler{
 
 func GetDownloadUrl() fiber.Handler {
     return func(c fiber.Ctx) error {
+		fmt.Println("get download url")
 		envs:= env.NewEnv()
-        objectKey := c.Params("objectKey")
-
+		object_key := c.Query("objectKey")
+		fmt.Println("object key: ", object_key)
 		// setup AWS config
+
+		
         cfg, err := config.LoadDefaultConfig(context.TODO(),
             config.WithRegion("us-east-1"),
             config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
@@ -117,7 +121,8 @@ func GetDownloadUrl() fiber.Handler {
         presignedUrl, err := presignClient.PresignGetObject(context.TODO(),
             &s3.GetObjectInput{
                 Bucket: aws.String(envs.S3_BUCKET_NAME),
-                Key:    aws.String(objectKey),
+                Key:    aws.String(object_key),
+				
             },
             func(opts *s3.PresignOptions) {
                 opts.Expires = 15 * time.Minute
@@ -156,9 +161,17 @@ func AddVideoFileKeyToDB() fiber.Handler{
 				Message: "Failed to fetch userid",
 			})
 		}
+		// ❌ Wrong — lowercase fields, JSON can't see them
+		// var body struct {
+		// 	filename  string
+		// 	fileType  string
+		// 	objectKey string
+		// }
 
-		var body struct{
-			filename string
+		var body struct {
+			Filename  string `json:"filename"`
+			FileType  string `json:"fileType"`
+			ObjectKey string `json:"objectKey"`
 		}
 
 		if err:=c.Bind().Body(&body); err!=nil{
@@ -170,23 +183,26 @@ func AddVideoFileKeyToDB() fiber.Handler{
 			})
 		}
 
-		getObjectKey:= GetObjectKey(body.filename)
-		// fmt.Println("getobject key: ", getObjectKey)
-		if getObjectKey==""{
+		if(body.ObjectKey==""){
 			return c.Status(fiber.StatusBadRequest).JSON(VideoUploadResponse{
 				Data:models.VideoUpload{},
 				Code:400,
 				Success:false,
-				Message: "provide the correct filename",
+				Message: "body is empty",
 			})
 		}
+
+		fmt.Println("body for create video: ", body)
+
 		userid,_:= strconv.Atoi(u_id)
 		videoUpload:=&models.VideoUpload{
 			UserID: int64(userid),
-			FileURL: getObjectKey,
+			FileURL: body.ObjectKey,
+			FileType: body.FileType,
 		}
 
 		_, err = connect.Db.NewInsert().Model(videoUpload).Returning("*").Exec(c.Context())
+		
 		if err!=nil{
 			fmt.Println("error while inserting it into db")
 			return c.Status(fiber.StatusBadRequest).JSON(VideoUploadResponse{
@@ -214,6 +230,7 @@ type GetListOfVideoFilesResponse struct{
 }
 func GetListOfVideoFiles() fiber.Handler{
 	return func (c fiber.Ctx) error{
+	
 		u_id, err:= FetchUserId(c)
 		
 		if err!=nil{
@@ -223,18 +240,22 @@ func GetListOfVideoFiles() fiber.Handler{
 				Code:400,
 			})
 		}
+		userID, err := strconv.ParseInt(u_id, 10, 64)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"message": "invalid user id",
+			})
+		}
 
 		
-
 		var videoFiles []models.VideoUpload
-
+		
 		err = connect.Db.NewSelect().
 			Model(&videoFiles).
-			Where("user_id = ?", u_id).
+			Where("user_id = ?", userID).
 			Scan(c.Context())
 
 		
-
 		if err!=nil{
 			return c.Status(fiber.StatusBadRequest).JSON(GetListOfVideoFilesResponse{
 				VideoFiles: []models.VideoUpload{},
@@ -248,7 +269,6 @@ func GetListOfVideoFiles() fiber.Handler{
 			Success: true,
 			Code:200,
 		})
-
 	}
 }
 
