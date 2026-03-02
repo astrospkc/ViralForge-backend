@@ -430,8 +430,6 @@ func TranscodeVideo(videoUploadID int64, inputKey string, userId int64) error {
     return nil
 }
 
-
-
 func UploadToS3(localFilePath string, s3Key string) error {
     envs := env.NewEnv()
 
@@ -481,4 +479,31 @@ func UploadToS3(localFilePath string, s3Key string) error {
 
     fmt.Printf("successfully uploaded %s to S3 at %s\n", localFilePath, s3Key)
     return nil
+}
+
+type GetTheVideoDetailsUploadedResponse struct {
+	Data  *models.VideoDetailsUpload 
+	Success bool 
+	Code    int 
+}
+
+func GetTranscodedVideoDetails() fiber.Handler{
+	return func (c fiber.Ctx) error{
+		videoId:= c.Query("videoId")
+
+		var video_transcoded_details models.VideoDetailsUpload 
+		err:= connect.Db.NewSelect().Model(&video_transcoded_details).Where("video_upload_id = ?", videoId).Scan(c.Context())
+		if err!=nil{
+			return c.Status(fiber.StatusBadRequest).JSON(GetTheVideoDetailsUploadedResponse{
+				Success: false,
+				Code:400,
+			})
+		}
+
+		return c.Status(fiber.StatusOK).JSON(GetTheVideoDetailsUploadedResponse{
+			Data:&video_transcoded_details,
+			Success: true,
+			Code:200,
+		})
+	}
 }
