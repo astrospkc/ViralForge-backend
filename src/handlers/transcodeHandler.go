@@ -205,9 +205,9 @@ func AddVideoFileKeyToDB() fiber.Handler{
 
 		fmt.Println("body for create video: ", body)
 
-		userid,_:= strconv.Atoi(u_id)
+		
 		videoUpload:=&models.VideoUpload{
-			UserID: int64(userid),
+			UserID: u_id,
 			FileURL: body.ObjectKey,
 			FileType: body.FileType,
 		}
@@ -251,19 +251,12 @@ func GetListOfVideoFiles() fiber.Handler{
 				Code:400,
 			})
 		}
-		userID, err := strconv.ParseInt(u_id, 10, 64)
-		if err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"message": "invalid user id",
-			})
-		}
-
-		
+	
 		var videoFiles []models.VideoUpload
 		
 		err = connect.Db.NewSelect().
 			Model(&videoFiles).
-			Where("user_id = ?", userID).
+			Where("user_id = ?", u_id).
 			Scan(c.Context())
 
 		
@@ -291,11 +284,16 @@ type VideoTranscodeResponse struct{
 
 func VideoTranscode() fiber.Handler{
 	return func(c fiber.Ctx) error{
+		user_id, err := FetchUserId(c) 
+		if err!=nil{
+			return c.Status(fiber.StatusBadRequest).JSON("failed to fetch user id")
+		}
 		object_key := c.Query("objectKey")
 		videoId,_ := strconv.Atoi(c.Query("videoId"))
 		v_id := int64(videoId)
 
-		err := TranscodeVideo(v_id, object_key)
+
+		err = TranscodeVideo(v_id, object_key, user_id)
 		if err!=nil{
 			connect.Db.NewUpdate().
 			Model((*models.VideoDetailsUpload)(nil)).
@@ -337,24 +335,34 @@ type Quality struct {
 	Name 		string
 }
 
-func TranscodeVideo(videoUploadID int64, inputKey string) error {
+func TranscodeVideo(videoUploadID int64, inputKey string, userId int64) error {
     inputFile, err := DownloadFromS3(inputKey)
     if err != nil {
         return err
     }
+	fmt.Println("input file: ", inputFile, videoUploadID)
     defer os.Remove(inputFile)
 
     // create VideoDetailsUpload record with "processing" status
     now := time.Now()
     details := &models.VideoDetailsUpload{
+
         VideoUploadID: videoUploadID, // ← FK to VideoUpload
+		UserID: userId,
         Status:        "processing",
         UploadedAt:    now,
+		TranscodedUrls: []string{},
     }
-    _, err = connect.Db.NewInsert().
+
+	fmt.Println("details: ", details)
+
+    result, err := connect.Db.NewInsert().
         Model(details).
         Returning("*").
         Exec(context.Background())
+
+	fmt.Println("result: ", result)
+	fmt.Println("error :", err)
     if err != nil {
         return fmt.Errorf("failed to create details record: %w", err)
     }
@@ -371,6 +379,7 @@ func TranscodeVideo(videoUploadID int64, inputKey string) error {
     for _, q := range qualities {
         localOutput := fmt.Sprintf("/tmp/%s-%s.mp4", uid, q.Name)
         outputKey := fmt.Sprintf("transcoded/%s-%s.mp4", uid, q.Name)
+		fmt.Println("localoutput , outputkey: ", localOutput, outputKey)
         defer os.Remove(localOutput)
 
         err := ffmpeg.Input(inputFile).
@@ -394,6 +403,8 @@ func TranscodeVideo(videoUploadID int64, inputKey string) error {
                 Exec(context.Background())
             return fmt.Errorf("transcoding failed for %s: %w", q.Name, err)
         }
+
+		fmt.Println("local output and output key: ", localOutput, outputKey)
 
         // ← check upload error
         if err := UploadToS3(localOutput, outputKey); err != nil {

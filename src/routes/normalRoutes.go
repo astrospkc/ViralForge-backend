@@ -22,6 +22,7 @@ func NormalRoutes(app *fiber.App){
 	video.Get("/get_download_url", handlers.GetDownloadUrl())
 	video.Post("/get_presigned_url", handlers.GetPresignedUrl())
 	video.Post("/create_video", handlers.AddVideoFileKeyToDB())
+	video.Post("/transcode", handlers.VideoTranscode())
 
 	
 

@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"fmt"
-	"strconv"
 	"time"
 	"viralforge/src/connect"
 	"viralforge/src/env"
@@ -222,17 +221,9 @@ func GetUserFromId() fiber.Handler{
 			})
 		}
 		fmt.Println("user id in get user function: ", user_id)
-		u_id, err := strconv.Atoi(user_id)
-		if err != nil {
-			// Handle error if user_id is not a valid number
-			fmt.Println("Conversion error:", err)
-			return c.Status(fiber.StatusBadRequest).JSON(GetUserResponse{
-				Success: false,
-				Code:400,
-			})
-		}
+		
 		var user models.User
-		err = connect.Db.NewSelect().Model((&user)).Where("id = ?",u_id).Scan(c.Context())
+		err = connect.Db.NewSelect().Model((&user)).Where("id = ?",user_id).Scan(c.Context())
 		if err!=nil{
 			return c.Status(fiber.StatusBadRequest).JSON(GetUserResponse{
 				Success: false,

@@ -40,7 +40,7 @@ type VideoDetailsUpload struct {
     UserID        int64     `bun:",notnull" json:"user_id"`
 
     // transcoded URLs
-    TranscodedUrls []string `bun:"transcoded_urls,array" json:"transcoded_urls"` // ← fix array tag
+    TranscodedUrls []string `bun:"transcoded_urls,type:text[]"` // ← fix array tag
 
     // Processing Status
     Status          string     `bun:"type:varchar(50),default:'uploaded'" json:"status"`

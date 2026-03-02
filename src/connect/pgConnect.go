@@ -55,5 +55,10 @@ func PgConnect() {
 		log.Fatal(err)
 	}
 
+	if _, err:= Db.NewCreateTable().Model((*models.VideoDetailsUpload)(nil)).IfNotExists().Exec(ctx); err!=nil{
+		log.Fatal((err))
+	}			
+
+
 	log.Println("Connected to Neon DB successfully 🚀")
 }
