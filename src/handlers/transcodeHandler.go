@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"time"
 	"viralforge/src/connect"
@@ -13,10 +14,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 	ffmpeg "github.com/u2takey/ffmpeg-go"
+	"github.com/uptrace/bun/dialect/pgdialect"
 )
 
 
@@ -95,7 +98,7 @@ func GetPresignedUrl() fiber.Handler{
 }
 
 
-func DownlaodFromS3( objectKey string) (string, error){
+func DownloadFromS3( objectKey string) (string, error){
 	envs:=env.NewEnv()
 
 	cfg, err := config.LoadDefaultConfig(context.TODO(),
@@ -136,7 +139,7 @@ func GetDownloadUrl() fiber.Handler {
 		fmt.Println("object key: ", object_key)
 		// setup AWS config
 
-		presigned_url, err:= DownlaodFromS3(object_key)
+		presigned_url, err:= DownloadFromS3(object_key)
 		if err!=nil{
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"Message":"Failed to generate presigned url",
@@ -156,7 +159,6 @@ type VideoUploadResponse struct{
 	Success  bool
 	Message  string
 }
-
 
 //TODO: add uploaded video to job queue ( not directly to the db , worker will do the job of inserting the video to s3 , optional : in transcoding job, start transcoding) for uploading videos to the s3 and do not wan
 func AddVideoFileKeyToDB() fiber.Handler{
@@ -281,42 +283,191 @@ func GetListOfVideoFiles() fiber.Handler{
 	}
 }
 
+type VideoTranscodeResponse struct{
+	Data  *models.VideoDetailsUpload 
+	Success bool 
+	Code   int
+}
+
 func VideoTranscode() fiber.Handler{
 	return func(c fiber.Ctx) error{
 		object_key := c.Query("objectKey")
-		getTranscodeVideo:=GetTranscodeVideo(object_key)
+		videoId,_ := strconv.Atoi(c.Query("videoId"))
+		v_id := int64(videoId)
+
+		err := TranscodeVideo(v_id, object_key)
+		if err!=nil{
+			connect.Db.NewUpdate().
+			Model((*models.VideoDetailsUpload)(nil)).
+			Set("status = ?", "failed").
+			Set("processing_error = ?", err.Error()).
+			Where("id = ?", v_id).
+			Exec(context.Background())
+	
+			return c.Status(fiber.StatusInternalServerError).JSON(VideoTranscodeResponse{
+				Success: false,
+				Code:500,
+			})
+		}
+		var v_details models.VideoDetailsUpload
+		err=connect.Db.NewSelect().Model((&v_details)).Where("video_upload_id = ?",videoId).Scan(c.Context())
+
+		if err!=nil{
+			return c.Status(fiber.StatusInternalServerError).JSON(VideoTranscodeResponse{
+				Success: false,
+				Code:500,
+			})
+		}
+
+		return c.Status(fiber.StatusOK).JSON(VideoTranscodeResponse{
+			Data:&v_details,
+			Success: true,
+			Code:200,
+		})
+
 
 	}
 	
 
 }
 
-func TranscodeVideo(inputKey string, outputKey string) error {
-    // download from S3
-    inputFile := downloadFromS3(inputKey)
-    
-    // transcode to multiple qualities
+type Quality struct {
+	Resolution  string 
+	Bitrate 	string 
+	Name 		string
+}
+
+func TranscodeVideo(videoUploadID int64, inputKey string) error {
+    inputFile, err := DownloadFromS3(inputKey)
+    if err != nil {
+        return err
+    }
+    defer os.Remove(inputFile)
+
+    // create VideoDetailsUpload record with "processing" status
+    now := time.Now()
+    details := &models.VideoDetailsUpload{
+        VideoUploadID: videoUploadID, // ← FK to VideoUpload
+        Status:        "processing",
+        UploadedAt:    now,
+    }
+    _, err = connect.Db.NewInsert().
+        Model(details).
+        Returning("*").
+        Exec(context.Background())
+    if err != nil {
+        return fmt.Errorf("failed to create details record: %w", err)
+    }
+
     qualities := []Quality{
         {Resolution: "1920x1080", Bitrate: "4000k", Name: "1080p"},
         {Resolution: "1280x720",  Bitrate: "2500k", Name: "720p"},
         {Resolution: "854x480",   Bitrate: "1000k", Name: "480p"},
     }
-    
+
+    uid := uuid.New().String() // ← move outside loop, same prefix for all qualities
+    var transcodedUrls []string
+
     for _, q := range qualities {
+        localOutput := fmt.Sprintf("/tmp/%s-%s.mp4", uid, q.Name)
+        outputKey := fmt.Sprintf("transcoded/%s-%s.mp4", uid, q.Name)
+        defer os.Remove(localOutput)
+
         err := ffmpeg.Input(inputFile).
-            Output(fmt.Sprintf("output_%s.mp4", q.Name), ffmpeg.KwArgs{
-                "vf":      fmt.Sprintf("scale=%s", q.Resolution),
-                "b:v":     q.Bitrate,
-                "c:v":     "libx264",  // H.264 codec
-                "c:a":     "aac",      // AAC audio
-                "preset":  "fast",     // encoding speed vs compression
-                "crf":     "23",       // quality level
+            Output(localOutput, ffmpeg.KwArgs{
+                "vf":     fmt.Sprintf("scale=%s", q.Resolution),
+                "b:v":    q.Bitrate,
+                "c:v":    "libx264",
+                "c:a":    "aac",
+                "preset": "fast",
+                "crf":    "23",
             }).
             OverWriteOutput().
             Run()
-        
-        // upload each quality to S3
-        uploadToS3(fmt.Sprintf("output_%s.mp4", q.Name))
+        if err != nil {
+            // ← update status to failed with error
+            connect.Db.NewUpdate().
+                Model((*models.VideoDetailsUpload)(nil)).
+                Set("status = ?", "failed").
+                Set("processing_error = ?", err.Error()).
+                Where("id = ?", details.ID).
+                Exec(context.Background())
+            return fmt.Errorf("transcoding failed for %s: %w", q.Name, err)
+        }
+
+        // ← check upload error
+        if err := UploadToS3(localOutput, outputKey); err != nil {
+            return fmt.Errorf("upload failed for %s: %w", q.Name, err)
+        }
+
+        transcodedUrls = append(transcodedUrls, outputKey)
     }
+
+    // update DB with completed status and transcoded URLs
+    processedAt := time.Now()
+    _, err = connect.Db.NewUpdate().
+        Model((*models.VideoDetailsUpload)(nil)).
+        Set("transcoded_urls = ?", pgdialect.Array(transcodedUrls)).
+        Set("status = ?", "completed").
+        Set("processed_at = ?", processedAt).
+        Where("id = ?", details.ID). // ← use details.ID not videoUploadID
+        Exec(context.Background())
+    if err != nil {
+        return fmt.Errorf("failed to update DB: %w", err)
+    }
+
+    return nil
 }
 
+
+
+func UploadToS3(localFilePath string, s3Key string) error {
+    envs := env.NewEnv()
+
+    cfg, err := config.LoadDefaultConfig(context.TODO(),
+        config.WithRegion("us-east-1"),
+        config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+            envs.AWS_ACCESS_KEY_ID,
+            envs.AWS_SECRET_ACCESS_KEY,
+            "",
+        )),
+    )
+    if err != nil {
+        return fmt.Errorf("failed to load aws config: %w", err)
+    }
+
+    // open the local file
+    file, err := os.Open(localFilePath)
+    if err != nil {
+        return fmt.Errorf("failed to open local file: %w", err)
+    }
+    defer file.Close()
+
+    // get file size
+    fileInfo, err := file.Stat()
+    if err != nil {
+        return fmt.Errorf("failed to get file info: %w", err)
+    }
+
+    s3Client := s3.NewFromConfig(cfg)
+
+    // use multipart uploader for large files
+    uploader := manager.NewUploader(s3Client, func(u *manager.Uploader) {
+        u.PartSize = 10 * 1024 * 1024 // 10MB per part
+        u.Concurrency = 3              // 3 parallel uploads
+    })
+
+    _, err = uploader.Upload(context.TODO(), &s3.PutObjectInput{
+        Bucket:        aws.String(envs.S3_BUCKET_NAME),
+        Key:           aws.String(s3Key),
+        Body:          file,
+        ContentType:   aws.String("video/mp4"),
+        ContentLength: aws.Int64(fileInfo.Size()),
+    })
+    if err != nil {
+        return fmt.Errorf("failed to upload to S3: %w", err)
+    }
+
+    fmt.Printf("successfully uploaded %s to S3 at %s\n", localFilePath, s3Key)
+    return nil
+}

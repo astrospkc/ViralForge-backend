@@ -28,46 +28,30 @@ type VideoUpload struct {
 	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
     UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
 
+	
+
 }
 
 type VideoDetailsUpload struct {
-	bun.BaseModel `bun:"table:videodetails_uploads,alias:vu"`
+    bun.BaseModel `bun:"table:videodetails_uploads,alias:vdu"`
 
-	// Primary Keys
-	ID        int64     `bun:",pk,autoincrement" json:"id"`
-	UserID    int64     `bun:",notnull" json:"user_id"`
-	
-	// Original Video Information
-	OriginalFilename string    `bun:",notnull" json:"original_filename"`
-	OriginalURL      string    `bun:"type:text" json:"original_url"`           // S3/R2 URL
-	FileSize         int64     `json:"file_size"`                              // in bytes
-	MimeType         string    `bun:"type:varchar(100)" json:"mime_type"`      // video/mp4, etc.
-	
-	// Video Metadata
-	DurationSeconds  int       `json:"duration_seconds"`                       // total duration
-	Width            int       `json:"width"`                                  // original resolution
-	Height           int       `json:"height"`
-	FPS              float64   `json:"fps"`                                    // frames per second
-	Codec            string    `bun:"type:varchar(50)" json:"codec"`           // h264, h265, etc.
-	Bitrate          int       `json:"bitrate"`                                // kbps
-	
-	// Processing Status
-	Status           string    `bun:"type:varchar(50),default:'uploaded'" json:"status"` 
-	// Status values: uploaded, processing, analyzed, completed, failed
-	
-	ProcessingError  string    `bun:"type:text" json:"processing_error,omitempty"`
-	
-	// Analysis Results (JSON fields for flexibility)
-	Metadata         map[string]interface{} `bun:"type:jsonb" json:"metadata,omitempty"`
-	// Stores: { "scenes": [...], "transcript": "...", "suggested_clips": [...] }
-	
-	// Timestamps
-	UploadedAt       time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"uploaded_at"`
-	ProcessedAt      *time.Time `bun:",nullzero" json:"processed_at,omitempty"`
-	
-	// Relations
-	User             *User      `bun:"rel:belongs-to,join:user_id=id" json:"user,omitempty"`
-	Clips            []*Clip    `bun:"rel:has-many,join:id=video_upload_id" json:"clips,omitempty"`
+    ID            int64     `bun:",pk,autoincrement" json:"id"`
+    VideoUploadID int64     `bun:",notnull" json:"video_upload_id"` // ← FK to VideoUpload.ID
+    UserID        int64     `bun:",notnull" json:"user_id"`
+
+    // transcoded URLs
+    TranscodedUrls []string `bun:"transcoded_urls,array" json:"transcoded_urls"` // ← fix array tag
+
+    // Processing Status
+    Status          string     `bun:"type:varchar(50),default:'uploaded'" json:"status"`
+    ProcessingError string     `bun:"type:text" json:"processing_error,omitempty"`
+
+    // Timestamps
+    UploadedAt  time.Time  `bun:",nullzero,notnull,default:current_timestamp" json:"uploaded_at"`
+    ProcessedAt *time.Time `bun:",nullzero" json:"processed_at,omitempty"`
+
+    // relation back to VideoUpload
+    VideoUpload *VideoUpload `bun:"rel:belongs-to,join:video_upload_id=id" json:"video_upload,omitempty"`
 }
 
 type Clip struct {

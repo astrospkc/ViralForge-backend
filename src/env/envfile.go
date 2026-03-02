@@ -7,6 +7,7 @@ import (
 )
 
 type ENV struct {
+	NEON_DB_URL				string `mapstructure:"NEON_DB_URL"`
 	SUPABASE_DB_URL 			string `mapstructure:"SUPABASE_DB_URL"`
 	SUPABASE_PROJECT_URL		string `mapstructure:"SUPABASE_DB_URL"`
 	SUPABASE_PUBLISHABLE_KEY	string `mapstructure:"SUPABASE_DB_URL"`
