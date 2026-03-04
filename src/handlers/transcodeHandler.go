@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 	"viralforge/src/connect"
 	"viralforge/src/env"
@@ -506,4 +509,144 @@ func GetTranscodedVideoDetails() fiber.Handler{
 			Code:200,
 		})
 	}
+}
+
+
+// extract the frames and use ai to search the locations 
+type KeyframeExtractor struct {
+    VideoPath string
+    OutputDir string
+}
+
+type KeyframeResult struct {
+    Frames    []string  // Paths to keyframes
+    Scenes    []Scene
+}
+
+type Scene struct {
+    StartTime float64
+    EndTime   float64
+    Keyframe  string
+}
+
+// extract frame from the random video 
+func (ke *KeyframeExtractor) Extract()(*KeyframeResult, error){
+	// creat output directory 
+	if err:= os.MkdirAll(fe.OutputDir, 0755); err!=nil{
+		return nil, fmt.Errorf("failed to create output directory:%w", err)
+	}
+
+	// get the time duration of the video
+	duration, err := ke.GetVideoDuration()
+	if err!=nil{
+		return nil, fmt.Errorf("failed to get the duration of the video: %w", err)
+	}
+
+
+}
+
+// 1. Get video object key from database
+// 2. Generate S3 presigned URL (temporary download link)
+// 3. Stream video from S3 to temporary file
+// 4. Detect scenes using FFmpeg
+// 5. Extract keyframes at scene timestamps
+// 6. Score frames using OCR
+// 7. Analyze top frames with AI
+// 8. Clean up temporary files
+// 9. Save results to database
+// get video duration 
+
+
+
+// after transcoding the video , it automatically reaches for processing and analysing the video 
+
+func(ke *KeyframeExtractor) GetVideoDuration() (float64, error){
+	cmd := exec.Command("ffprobe",
+		"-v","error",
+		"-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        ke.VideoPath,
+	)
+	output, err:=cmd.Output()
+	if err!=nil{
+		return 0, err;
+	}
+
+	var duration float64
+	_, err = fmt.Scanf(string(output), "%f", &duration)
+	return duration, err
+}
+
+// get the extract frames 
+// func(ke *KeyframeExtractor) Extract() ([]float64, error){
+// 	cmd := exec.Command("ffmpeg",)
+// }
+
+// get the transcoded video:
+func ExtractScenes(objectKey string)(error){
+	videoPath, err:= DownloadFromS3(objectKey)
+	if err!=nil{
+		return fmt.Errorf("failed to download: ", err)
+	}
+
+	// if this object key has already been analyzed then do not do again
+	// if want to update and start analysing or insert the data manually 
+	
+	// get video duration 
+	duration, err := GetVideoDuration(videoPath) 
+	if err!=nil{
+		return fmt.Errorf("failed to get the video duration: %w", err)
+	}
+	fmt.Println("duration of the video: ", duration)
+	// create output folder for the scence
+	outputDir := fmt.Sprintf("/tmp/scenes_%d", time.Now().Unix())
+
+	err = os.MkdirAll(outputDir, os.ModePerm)
+	if err!=nil{
+		return err
+	}
+
+	// ffmpeg scene detection:
+	cmd := exec.Command(
+		"ffmpeg",
+		"-i", videoPath,
+		"-filter:v", "select=gt(scene\\,0.4)",
+		"-vsync", "vfr",
+		filepath.Join(outputDir, "scene_%03d.jpg"),
+	)
+	
+	err = cmd.Run()
+	if err != nil {
+		return fmt.Errorf("scene extraction failed: %w", err)
+	}
+
+	fmt.Println("Scenes extracted to:", outputDir)
+
+	return nil
+
+}
+
+func GetVideoDuration(videoPath string)(float64, error){
+	cmd := exec.Command(
+		"ffprobe",
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		videoPath,
+	)
+
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+
+	durationStr := strings.TrimSpace(string(output))
+
+	duration, err := strconv.ParseFloat(durationStr, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	return duration, nil
 }
