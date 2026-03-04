@@ -513,37 +513,8 @@ func GetTranscodedVideoDetails() fiber.Handler{
 
 
 // extract the frames and use ai to search the locations 
-type KeyframeExtractor struct {
-    VideoPath string
-    OutputDir string
-}
-
-type KeyframeResult struct {
-    Frames    []string  // Paths to keyframes
-    Scenes    []Scene
-}
-
-type Scene struct {
-    StartTime float64
-    EndTime   float64
-    Keyframe  string
-}
-
-// extract frame from the random video 
-func (ke *KeyframeExtractor) Extract()(*KeyframeResult, error){
-	// creat output directory 
-	if err:= os.MkdirAll(fe.OutputDir, 0755); err!=nil{
-		return nil, fmt.Errorf("failed to create output directory:%w", err)
-	}
-
-	// get the time duration of the video
-	duration, err := ke.GetVideoDuration()
-	if err!=nil{
-		return nil, fmt.Errorf("failed to get the duration of the video: %w", err)
-	}
 
 
-}
 
 // 1. Get video object key from database
 // 2. Generate S3 presigned URL (temporary download link)
@@ -556,27 +527,6 @@ func (ke *KeyframeExtractor) Extract()(*KeyframeResult, error){
 // 9. Save results to database
 // get video duration 
 
-
-
-// after transcoding the video , it automatically reaches for processing and analysing the video 
-
-func(ke *KeyframeExtractor) GetVideoDuration() (float64, error){
-	cmd := exec.Command("ffprobe",
-		"-v","error",
-		"-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        ke.VideoPath,
-	)
-	output, err:=cmd.Output()
-	if err!=nil{
-		return 0, err;
-	}
-
-	var duration float64
-	_, err = fmt.Scanf(string(output), "%f", &duration)
-	return duration, err
-}
 
 // get the extract frames 
 // func(ke *KeyframeExtractor) Extract() ([]float64, error){
@@ -650,3 +600,4 @@ func GetVideoDuration(videoPath string)(float64, error){
 
 	return duration, nil
 }
+
