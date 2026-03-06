@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"viralforge/src/connect"
 	"viralforge/src/env"
@@ -631,3 +632,89 @@ func Extract() fiber.Handler{
 	}
 }
 
+
+func TranscodeWithSegments(videoUploadId string ,inputKey string, userId int64) error{
+	inputFile,err:= DownloadFromS3(inputKey)
+	if err!=nil{
+		return err
+	}
+
+	defer os.Remove(inputFile)
+
+	uid:= uuid.New().String()
+	segmentDir:= fmt.Sprintf("/tmp/%s-segments", uid)
+	os.MkdirAll(segmentDir,0755)
+	defer os.RemoveAll(segmentDir) 
+
+	// split raw video into segment first 
+	err = ffmpeg.Input(inputFile).Output(fmt.Sprintf("%s/segment_%03d.ts", segmentDir),ffmpeg.KwArgs{
+		"c":        "copy",      // ✅ no transcoding — just copy streams
+		"f":        "segment",   // split into segments
+		"segment_time": "6",     // 6 seconds each
+		"reset_timestamps": "1",
+	}).
+	OverWriteOutput().Run()
+	if err!=nil{
+		return fmt.Errorf("segmentation failed %w: ",err)
+	}
+
+	// get all segments 
+	segments, err:=filepath.Glob(fmt.Sprintf("%s/segment_*.ts", segmentDir))
+	if err!=nil{
+		return err
+	}
+
+	fmt.Print("total segments ", len(segments))
+
+	qualities := []Quality{
+        {Resolution: "1920x1080", Bitrate: "4000k", Name: "1080p"},
+        {Resolution: "1280x720",  Bitrate: "2500k", Name: "720p"},
+        {Resolution: "854x480",   Bitrate: "1000k", Name: "480p"},
+    }
+
+	// now transcode each segments
+	// using worker pool to process segments in parallel 
+	var wg sync.WaitGroup
+	semaphore:=make(chan struct{}, 4) //max parallel process is 4 
+
+	for i, segment := range(segments){
+		wg.Add(1)
+		go func(segInd int, segPath string){
+			defer wg.Done()
+			semaphore <-struct{}{} //acquire
+			defer func() {<-semaphore}() //release 
+			err := TranscodeSegment(segPath, uid, segInd, qualities)
+            if err != nil {
+                fmt.Printf("segment %d failed: %v\n", segInd, err)
+            }
+		}(i, segment)
+	}
+	wg.Wait() //wait for all segments to transcode and upload 
+
+	// generate and upload playlist 
+	err = GenerateAndUploadPlaylists(uid, len(segments), qualities)
+    if err != nil {
+        return err
+    }
+
+    // Step 6 — update DB
+    masterKey := fmt.Sprintf("hls/%s/master.m3u8", uid)
+    processedAt := time.Now()
+    _, err = connect.Db.NewUpdate().
+        Model((*models.VideoDetailsUpload)(nil)).
+        Set("transcoded_urls = ?", pgdialect.Array([]string{masterKey})).
+        Set("status = ?", "completed").
+        Set("processed_at = ?", processedAt).
+        Where("video_upload_id = ?", videoUploadId).
+        Exec(context.Background())
+
+    return err
+
+}
+
+func TranscodeSegment(segmentPath string , uid string, segInd int, qualities []Quality)error{
+	return nil
+}
+func GenerateAndUploadPlaylists(uid string, segments int, qualities []Quality) error{
+	return nil
+}
