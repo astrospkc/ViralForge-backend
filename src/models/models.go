@@ -40,11 +40,11 @@ type VideoDetailsUpload struct {
     UserID        int64     `bun:",notnull" json:"user_id"`
 
     // transcoded URLs
-    TranscodedUrls []string `bun:"transcoded_urls,type:text[]"` // ← fix array tag
+    MasterPlaylistKey  string  `bun:"," json:"master_playlist_key"` // ← fix array tag
 
     // Processing Status
     Status          string     `bun:"type:varchar(50),default:'uploaded'" json:"status"`
-    ProcessingError string     `bun:"type:text" json:"processing_error,omitempty"`
+    
 
     // Timestamps
     UploadedAt  time.Time  `bun:",nullzero,notnull,default:current_timestamp" json:"uploaded_at"`

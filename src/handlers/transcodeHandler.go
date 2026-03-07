@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"viralforge/src/connect"
 	"viralforge/src/env"
@@ -104,6 +102,7 @@ func GetPresignedUrl() fiber.Handler{
 
 func DownloadFromS3( objectKey string) (string, error){
 	envs:=env.NewEnv()
+	fmt.Println("envs:")
 
 	cfg, err := config.LoadDefaultConfig(context.TODO(),
             config.WithRegion("us-east-1"),
@@ -296,21 +295,11 @@ func VideoTranscode() fiber.Handler{
 		videoId,_ := strconv.Atoi(c.Query("videoId"))
 		v_id := int64(videoId)
 
-
-		err = TranscodeVideo(v_id, object_key, user_id)
+		err = HLSTranscode(v_id,object_key, user_id)
 		if err!=nil{
-			connect.Db.NewUpdate().
-			Model((*models.VideoDetailsUpload)(nil)).
-			Set("status = ?", "failed").
-			Set("processing_error = ?", err.Error()).
-			Where("id = ?", v_id).
-			Exec(context.Background())
-	
-			return c.Status(fiber.StatusInternalServerError).JSON(VideoTranscodeResponse{
-				Success: false,
-				Code:500,
-			})
+			return c.Status(fiber.StatusBadRequest).JSON(err)
 		}
+		
 		var v_details models.VideoDetailsUpload
 		err=connect.Db.NewSelect().Model((&v_details)).Where("video_upload_id = ?",videoId).Scan(c.Context())
 
@@ -326,8 +315,6 @@ func VideoTranscode() fiber.Handler{
 			Success: true,
 			Code:200,
 		})
-
-
 	}
 	
 
@@ -366,7 +353,6 @@ func TranscodeVideo(videoUploadID int64, inputKey string, userId int64) error {
 		UserID: userId,
         Status:        "processing",
         UploadedAt:    now,
-		TranscodedUrls: []string{},
     }
 
 	fmt.Println("details: ", details)
@@ -443,9 +429,27 @@ func TranscodeVideo(videoUploadID int64, inputKey string, userId int64) error {
 }
 
 }
+
+func getContentType(filePath string) string {
+
+    ext := strings.ToLower(filepath.Ext(filePath))
+
+    switch ext {
+
+    case ".m3u8":
+        return "application/vnd.apple.mpegurl"
+
+    case ".ts":
+        return "video/MP2T"
+
+    case ".mp4":
+        return "video/mp4"
+
+    default:
+        return "application/octet-stream"
+    }
+}
 	
-
-
 func UploadToS3(localFilePath string, s3Key string) error {
     envs := env.NewEnv()
 
@@ -482,11 +486,13 @@ func UploadToS3(localFilePath string, s3Key string) error {
         u.Concurrency = 3              // 3 parallel uploads
     })
 
+	contentType := getContentType(localFilePath)
+
     _, err = uploader.Upload(context.TODO(), &s3.PutObjectInput{
         Bucket:        aws.String(envs.S3_BUCKET_NAME),
         Key:           aws.String(s3Key),
         Body:          file,
-        ContentType:   aws.String("video/mp4"),
+        ContentType:   aws.String(contentType),
         ContentLength: aws.Int64(fileInfo.Size()),
     })
     if err != nil {
@@ -525,146 +531,53 @@ func GetTranscodedVideoDetails() fiber.Handler{
 }
 
 
-// extract the frames and use ai to search the locations 
-
-
-
-// 1. Get video object key from database
-// 2. Generate S3 presigned URL (temporary download link)
-// 3. Stream video from S3 to temporary file
-// 4. Detect scenes using FFmpeg
-// 5. Extract keyframes at scene timestamps
-// 6. Score frames using OCR
-// 7. Analyze top frames with AI
-// 8. Clean up temporary files
-// 9. Save results to database
-// get video duration 
-
-
-// get the extract frames 
-// func(ke *KeyframeExtractor) Extract() ([]float64, error){
-// 	cmd := exec.Command("ffmpeg",)
-// }
-
-// get the transcoded video:
-func ExtractScenes(objectKey string)(error){
-	videoPath, err:= DownloadFromS3(objectKey)
-	if err!=nil{
-		return fmt.Errorf("failed to download: ", err)
-	}
-
-	// if this object key has already been analyzed then do not do again
-	// if want to update and start analysing or insert the data manually 
+func HLSTranscode(videoUploadId int64, inputKey string, userId int64) error{
 	
-	// get video duration 
-	duration, err := GetVideoDuration(videoPath) 
-	if err!=nil{
-		return fmt.Errorf("failed to get the video duration: %w", err)
-	}
-	fmt.Println("duration of the video: ", duration)
-	// create output folder for the scence
-	outputDir := fmt.Sprintf("/tmp/scenes_%d", time.Now().Unix())
 
-	err = os.MkdirAll(outputDir, os.ModePerm)
-	if err!=nil{
-		return err
-	}
-
-	// ffmpeg scene detection:
-	cmd := exec.Command(
-		"ffmpeg",
-		"-i", videoPath,
-		"-filter:v", "select=gt(scene\\,0.4)",
-		"-vsync", "vfr",
-		filepath.Join(outputDir, "scene_%03d.jpg"),
-	)
+	// first check if its exists , if exists then fetch the information 
+	exists, err := connect.Db.NewSelect().Model((*models.VideoDetailsUpload)(nil)).Where("video_upload_id = ?", videoUploadId).Exists(context.Background())
 	
-	err = cmd.Run()
-	if err != nil {
-		return fmt.Errorf("scene extraction failed: %w", err)
-	}
-
-	fmt.Println("Scenes extracted to:", outputDir)
-	files, err := os.ReadDir(outputDir)
-	if err != nil {
-		return err
-	}
-
-	fmt.Println("Total scene frames:", len(files))
-
-	return nil
-
-}
-
-func GetVideoDuration(videoPath string)(float64, error){
-	cmd := exec.Command(
-		"ffprobe",
-		"-v", "error",
-		"-show_entries", "format=duration",
-		"-of", "default=noprint_wrappers=1:nokey=1",
-		videoPath,
-	)
-
-	output, err := cmd.Output()
-	if err != nil {
-		return 0, err
-	}
-
-	durationStr := strings.TrimSpace(string(output))
-
-	duration, err := strconv.ParseFloat(durationStr, 64)
-	if err != nil {
-		return 0, err
-	}
-
-	return duration, nil
-}
-
-func Extract() fiber.Handler{
-	return func (c fiber.Ctx) error{
-		obj_key:= c.Query("objectKey")
-		err:= ExtractScenes(obj_key)
-		if err!=nil{
-			return c.Status(fiber.StatusBadRequest).JSON("failed to extract scenes")
-		}
-
-		return c.Status(fiber.StatusAccepted).JSON("got the extracted scenes")
-	}
-}
-
-
-func TranscodeWithSegments(videoUploadId string ,inputKey string, userId int64) error{
-	inputFile,err:= DownloadFromS3(inputKey)
+	fmt.Println("exists :", exists, err)
 	if err!=nil{
-		return err
+		return fmt.Errorf("failed to check if video exists: %w", err)
 	}
+	
+	if exists{
+		return nil
+	}else {
+		fmt.Println("hello here")
+		inputFile, err := DownloadFromS3(inputKey)
+		fmt.Println("input file: ", inputFile)
+    if err != nil {
+		fmt.Errorf("error while download file from s3: %w", err)
+        return err
+    }
 
-	defer os.Remove(inputFile)
+	fmt.Println("input file: ", inputFile, videoUploadId)
+    defer os.Remove(inputFile)
 
-	uid:= uuid.New().String()
-	segmentDir:= fmt.Sprintf("/tmp/%s-segments", uid)
-	os.MkdirAll(segmentDir,0755)
-	defer os.RemoveAll(segmentDir) 
+	now := time.Now()
+    details := &models.VideoDetailsUpload{
 
-	// split raw video into segment first 
-	err = ffmpeg.Input(inputFile).Output(fmt.Sprintf("%s/segment_%03d.ts", segmentDir),ffmpeg.KwArgs{
-		"c":        "copy",      // ✅ no transcoding — just copy streams
-		"f":        "segment",   // split into segments
-		"segment_time": "6",     // 6 seconds each
-		"reset_timestamps": "1",
-	}).
-	OverWriteOutput().Run()
-	if err!=nil{
-		return fmt.Errorf("segmentation failed %w: ",err)
-	}
+        VideoUploadID: videoUploadId, // ← FK to VideoUpload
+		UserID: userId,
+        Status:        "processing",
+        UploadedAt:    now,
+		
+    }
 
-	// get all segments 
-	segments, err:=filepath.Glob(fmt.Sprintf("%s/segment_*.ts", segmentDir))
-	if err!=nil{
-		return err
-	}
+	fmt.Println("details: ", details)
+	result, err := connect.Db.NewInsert().
+        Model(details).
+        Returning("*").
+        Exec(context.Background())
 
-	fmt.Print("total segments ", len(segments))
+	fmt.Println("result: ", result)
+	fmt.Println("error :", err)
+    if err != nil {
+        return fmt.Errorf("failed to create details record: %w", err)
+    }
+
 
 	qualities := []Quality{
         {Resolution: "1920x1080", Bitrate: "4000k", Name: "1080p"},
@@ -672,49 +585,67 @@ func TranscodeWithSegments(videoUploadId string ,inputKey string, userId int64) 
         {Resolution: "854x480",   Bitrate: "1000k", Name: "480p"},
     }
 
-	// now transcode each segments
-	// using worker pool to process segments in parallel 
-	var wg sync.WaitGroup
-	semaphore:=make(chan struct{}, 4) //max parallel process is 4 
+	var transcodedUrls []string
+	
+	for _, q := range qualities {
+		uid:=uuid.New()
+        qualityDir := fmt.Sprintf("/tmp/%s/%s", uid, q.Name)
+		os.MkdirAll(qualityDir, os.ModePerm)
 
-	for i, segment := range(segments){
-		wg.Add(1)
-		go func(segInd int, segPath string){
-			defer wg.Done()
-			semaphore <-struct{}{} //acquire
-			defer func() {<-semaphore}() //release 
-			err := TranscodeSegment(segPath, uid, segInd, qualities)
-            if err != nil {
-                fmt.Printf("segment %d failed: %v\n", segInd, err)
-            }
-		}(i, segment)
+		playlist := fmt.Sprintf("%s/index.m3u8", qualityDir)
+		segmentPattern := fmt.Sprintf("%s/segment%%03d.ts", qualityDir)
+        
+
+        err := ffmpeg.Input(inputFile).
+    	Output(playlist, ffmpeg.KwArgs{
+        "vf": fmt.Sprintf("scale=%s", q.Resolution),
+        "c:v": "libx264",
+        "b:v": q.Bitrate,
+        "c:a": "aac",
+        "preset": "fast",
+        "g": "48",
+        "keyint_min": "48",
+        "hls_time": "6",
+        "hls_list_size": "0",
+        "hls_segment_filename": segmentPattern,
+        "f": "hls",
+    }).
+    OverWriteOutput().
+    Run()
+	files, err := os.ReadDir(qualityDir)
+	if err != nil {
+		return err
 	}
-	wg.Wait() //wait for all segments to transcode and upload 
 
-	// generate and upload playlist 
-	err = GenerateAndUploadPlaylists(uid, len(segments), qualities)
-    if err != nil {
-        return err
+
+	fmt.Println("files: ", files)
+
+	// update the db:
+	for _, f := range files {
+		
+		fmt.Println("file of files : ", f)
+		localFile := filepath.Join(qualityDir, f.Name())
+		s3Key := fmt.Sprintf(
+			"transcoded/%s/%s/%s",
+			uid,
+			q.Name,
+			f.Name(),
+		)
+        transcodedUrls = append(transcodedUrls, s3Key)
+		err := UploadToS3(localFile, s3Key)
+		if err != nil {
+			return err
+		}
+	
+	}
+}
+return nil
+
     }
-
-    // Step 6 — update DB
-    masterKey := fmt.Sprintf("hls/%s/master.m3u8", uid)
-    processedAt := time.Now()
-    _, err = connect.Db.NewUpdate().
-        Model((*models.VideoDetailsUpload)(nil)).
-        Set("transcoded_urls = ?", pgdialect.Array([]string{masterKey})).
-        Set("status = ?", "completed").
-        Set("processed_at = ?", processedAt).
-        Where("video_upload_id = ?", videoUploadId).
-        Exec(context.Background())
-
-    return err
-
+	
 }
 
-func TranscodeSegment(segmentPath string , uid string, segInd int, qualities []Quality)error{
-	return nil
-}
-func GenerateAndUploadPlaylists(uid string, segments int, qualities []Quality) error{
-	return nil
-}
+
+
+
+
