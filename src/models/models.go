@@ -28,30 +28,28 @@ type VideoUpload struct {
 	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
     UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
 
-	
-
 }
 
-type VideoDetailsUpload struct {
-    bun.BaseModel `bun:"table:videodetails_uploads,alias:vdu"`
 
-    ID            int64     `bun:",pk,autoincrement" json:"id"`
-    VideoUploadID int64     `bun:",notnull" json:"video_upload_id"` // ← FK to VideoUpload.ID
-    UserID        int64     `bun:",notnull" json:"user_id"`
 
-    // transcoded URLs
-    MasterPlaylistKey  string  `bun:"," json:"master_playlist_key"` // ← fix array tag
 
-    // Processing Status
-    Status          string     `bun:"type:varchar(50),default:'uploaded'" json:"status"`
-    
+type VideoQuality struct {
+    bun.BaseModel `bun:"table:video_qualities"`
 
-    // Timestamps
-    UploadedAt  time.Time  `bun:",nullzero,notnull,default:current_timestamp" json:"uploaded_at"`
-    ProcessedAt *time.Time `bun:",nullzero" json:"processed_at,omitempty"`
-
-    // relation back to VideoUpload
-    VideoUpload *VideoUpload `bun:"rel:belongs-to,join:video_upload_id=id" json:"video_upload,omitempty"`
+    ID            int64  `bun:",pk,autoincrement" json:"id"`
+    VideoID       int64  `bun:"video_upload_id,notnull" json:"video_upload_id"`          // FK
+	UserID		  int64   `bun:",notnull" json:"user_id"`
+    Quality       string `bun:"type:varchar(10)" json:"quality"`   // "1080p"
+    Codec         string `bun:"type:varchar(20)" json:"codec"`   // "h264"
+    Bitrate       string    `bun:",notnull" json:"bitrate"`            // 4000 (kbps)
+    Resolution    string `bun:"type:varchar(20)" json:"resolution"`   // "1920x1080"
+    PlaylistKey   string `bun:"type:text" json:"playlist_key"`           // S3 key
+    CDNUrl        string `bun:"type:text" json:"cdn_url"`           // CloudFront URL
+    Status        string `bun:"type:varchar(20)" json:"status"`   // "ready"
+    FileSizeBytes int64   `bun:"," json:"file_size_bytes"`                           // for analytics
+    CreatedAt     time.Time
+	// relation back to VideoUpload
+     VideoUpload *VideoUpload `bun:"rel:belongs-to,join:video_upload_id=id" json:"video_uploads,omitempty"`
 }
 
 type Clip struct {
@@ -100,6 +98,6 @@ type Clip struct {
 	CompletedAt    *time.Time `bun:",nullzero" json:"completed_at,omitempty"`
 	
 	// Relations
-	VideoUpload    *VideoDetailsUpload `bun:"rel:belongs-to,join:videodetails_upload_id=id" json:"videodetails_upload,omitempty"`
+	VideoUpload    *VideoQuality `bun:"rel:belongs-to,join:videodetails_upload_id=id" json:"videodetails_upload,omitempty"`
 	User           *User        `bun:"rel:belongs-to,join:user_id=id" json:"user,omitempty"`
 }

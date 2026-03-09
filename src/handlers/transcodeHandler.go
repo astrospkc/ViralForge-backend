@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"viralforge/src/connect"
 	"viralforge/src/env"
@@ -21,7 +22,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 	ffmpeg "github.com/u2takey/ffmpeg-go"
-	"github.com/uptrace/bun/dialect/pgdialect"
 )
 
 
@@ -280,7 +280,7 @@ func GetListOfVideoFiles() fiber.Handler{
 }
 
 type VideoTranscodeResponse struct{
-	Data  *models.VideoDetailsUpload 
+	Data  *[]models.VideoQuality 
 	Success bool 
 	Code   int
 }
@@ -300,7 +300,7 @@ func VideoTranscode() fiber.Handler{
 			return c.Status(fiber.StatusBadRequest).JSON(err)
 		}
 		
-		var v_details models.VideoDetailsUpload
+		var v_details []models.VideoQuality
 		err=connect.Db.NewSelect().Model((&v_details)).Where("video_upload_id = ?",videoId).Scan(c.Context())
 
 		if err!=nil{
@@ -316,119 +316,15 @@ func VideoTranscode() fiber.Handler{
 			Code:200,
 		})
 	}
-	
-
 }
 
-type Quality struct {
-	Resolution  string 
-	Bitrate 	string 
-	Name 		string
-}
-
-func TranscodeVideo(videoUploadID int64, inputKey string, userId int64) error {
-	// before inserting , check if the transcoding is done already 
-	// first check if its exists , if exists then fetch the information 
-	exists, err := connect.Db.NewSelect().Model((*models.VideoDetailsUpload)(nil)).Where("video_upload_id = ?", videoUploadID).Exists(context.Background())
-
-	if err!=nil{
-		return fmt.Errorf("failed to check if video exists: %w", err)
+	type Quality struct {
+		Name       string
+		Resolution string
+		Bitrate    string
+		AudioRate  string  // ← add this
 	}
-	
-	if exists{
-		return nil
-	}else {
-		inputFile, err := DownloadFromS3(inputKey)
-    if err != nil {
-        return err
-    }
-	fmt.Println("input file: ", inputFile, videoUploadID)
-    defer os.Remove(inputFile)
 
-	// create VideoDetailsUpload record with "processing" status
-    now := time.Now()
-    details := &models.VideoDetailsUpload{
-
-        VideoUploadID: videoUploadID, // ← FK to VideoUpload
-		UserID: userId,
-        Status:        "processing",
-        UploadedAt:    now,
-    }
-
-	fmt.Println("details: ", details)
-	result, err := connect.Db.NewInsert().
-        Model(details).
-        Returning("*").
-        Exec(context.Background())
-
-	fmt.Println("result: ", result)
-	fmt.Println("error :", err)
-    if err != nil {
-        return fmt.Errorf("failed to create details record: %w", err)
-    }
-
-	qualities := []Quality{
-        {Resolution: "1920x1080", Bitrate: "4000k", Name: "1080p"},
-        {Resolution: "1280x720",  Bitrate: "2500k", Name: "720p"},
-        {Resolution: "854x480",   Bitrate: "1000k", Name: "480p"},
-    }
-
-    uid := uuid.New().String() // ← move outside loop, same prefix for all qualities
-    var transcodedUrls []string
-
-	for _, q := range qualities {
-        localOutput := fmt.Sprintf("/tmp/%s-%s.mp4", uid, q.Name)
-        outputKey := fmt.Sprintf("transcoded/%s-%s.mp4", uid, q.Name)
-		fmt.Println("localoutput , outputkey: ", localOutput, outputKey)
-        defer os.Remove(localOutput)
-
-        err := ffmpeg.Input(inputFile).
-            Output(localOutput, ffmpeg.KwArgs{
-                "vf":     fmt.Sprintf("scale=%s", q.Resolution),
-                "b:v":    q.Bitrate,
-                "c:v":    "libx264",
-                "c:a":    "aac",
-                "preset": "fast",
-                "crf":    "23",
-            }).
-            OverWriteOutput().
-            Run()
-        if err != nil {
-            // ← update status to failed with error
-            connect.Db.NewUpdate().
-                Model((*models.VideoDetailsUpload)(nil)).
-                Set("status = ?", "failed").
-                Set("processing_error = ?", err.Error()).
-                Where("id = ?", details.ID).
-                Exec(context.Background())
-            return fmt.Errorf("transcoding failed for %s: %w", q.Name, err)
-        }
-
-		fmt.Println("local output and output key: ", localOutput, outputKey)
-
-        // ← check upload error
-        if err := UploadToS3(localOutput, outputKey); err != nil {
-            return fmt.Errorf("upload failed for %s: %w", q.Name, err)
-        }
-
-        transcodedUrls = append(transcodedUrls, outputKey)
-    }
-	processedAt := time.Now()
-    _, err = connect.Db.NewUpdate().
-        Model((*models.VideoDetailsUpload)(nil)).
-        Set("transcoded_urls = ?", pgdialect.Array(transcodedUrls)).
-        Set("status = ?", "completed").
-        Set("processed_at = ?", processedAt).
-        Where("id = ?", details.ID). // ← use details.ID not videoUploadID
-        Exec(context.Background())
-    if err != nil {
-        return fmt.Errorf("failed to update DB: %w", err)
-    }
-
-    return nil
-}
-
-}
 
 func getContentType(filePath string) string {
 
@@ -450,7 +346,7 @@ func getContentType(filePath string) string {
     }
 }
 	
-func UploadToS3(localFilePath string, s3Key string) error {
+func UploadToS3(localFilePath string, s3Key string)(bool, error) {
     envs := env.NewEnv()
 
     cfg, err := config.LoadDefaultConfig(context.TODO(),
@@ -462,20 +358,20 @@ func UploadToS3(localFilePath string, s3Key string) error {
         )),
     )
     if err != nil {
-        return fmt.Errorf("failed to load aws config: %w", err)
+        return false,fmt.Errorf("failed to load aws config: %w", err)
     }
 
     // open the local file
     file, err := os.Open(localFilePath)
     if err != nil {
-        return fmt.Errorf("failed to open local file: %w", err)
+        return false,fmt.Errorf("failed to open local file: %w", err)
     }
     defer file.Close()
 
     // get file size
     fileInfo, err := file.Stat()
     if err != nil {
-        return fmt.Errorf("failed to get file info: %w", err)
+        return false,fmt.Errorf("failed to get file info: %w", err)
     }
 
     s3Client := s3.NewFromConfig(cfg)
@@ -496,15 +392,15 @@ func UploadToS3(localFilePath string, s3Key string) error {
         ContentLength: aws.Int64(fileInfo.Size()),
     })
     if err != nil {
-        return fmt.Errorf("failed to upload to S3: %w", err)
+        return false,fmt.Errorf("failed to upload to S3: %w", err)
     }
 
     fmt.Printf("successfully uploaded %s to S3 at %s\n", localFilePath, s3Key)
-    return nil
+    return true,nil
 }
 
 type GetTheVideoDetailsUploadedResponse struct {
-	Data  *models.VideoDetailsUpload 
+	Data  *models.VideoQuality 
 	Success bool 
 	Code    int 
 }
@@ -513,7 +409,7 @@ func GetTranscodedVideoDetails() fiber.Handler{
 	return func (c fiber.Ctx) error{
 		videoId:= c.Query("videoId")
 
-		var video_transcoded_details models.VideoDetailsUpload 
+		var video_transcoded_details models.VideoQuality 
 		err:= connect.Db.NewSelect().Model(&video_transcoded_details).Where("video_upload_id = ?", videoId).Scan(c.Context())
 		if err!=nil{
 			return c.Status(fiber.StatusBadRequest).JSON(GetTheVideoDetailsUploadedResponse{
@@ -531,119 +427,194 @@ func GetTranscodedVideoDetails() fiber.Handler{
 }
 
 
-func HLSTranscode(videoUploadId int64, inputKey string, userId int64) error{
-	
+func HLSTranscode(videoUploadId int64, inputKey string, userId int64) error {
 
-	// first check if its exists , if exists then fetch the information 
-	exists, err := connect.Db.NewSelect().Model((*models.VideoDetailsUpload)(nil)).Where("video_upload_id = ?", videoUploadId).Exists(context.Background())
-	
-	fmt.Println("exists :", exists, err)
-	if err!=nil{
-		return fmt.Errorf("failed to check if video exists: %w", err)
-	}
-	
-	if exists{
-		return nil
-	}else {
-		fmt.Println("hello here")
-		inputFile, err := DownloadFromS3(inputKey)
-		fmt.Println("input file: ", inputFile)
+    // check if already exists
+    exists, err := connect.Db.NewSelect().
+        Model((*models.VideoQuality)(nil)).
+        Where("video_upload_id = ?", videoUploadId).
+        Exists(context.Background())
     if err != nil {
-		fmt.Errorf("error while download file from s3: %w", err)
-        return err
+        return fmt.Errorf("failed to check if video exists: %w", err)
+    }
+    if exists {
+        return nil
     }
 
-	fmt.Println("input file: ", inputFile, videoUploadId)
+    // download from S3
+    inputFile, err := DownloadFromS3(inputKey)
+    if err != nil {
+        return fmt.Errorf("error while downloading from s3: %w", err)
+    }
     defer os.Remove(inputFile)
 
-	now := time.Now()
-    details := &models.VideoDetailsUpload{
-
-        VideoUploadID: videoUploadId, // ← FK to VideoUpload
-		UserID: userId,
-        Status:        "processing",
-        UploadedAt:    now,
-		
+    var qualities = []Quality{
+        {Name: "1080p", Resolution: "1920x1080", Bitrate: "4000k", AudioRate: "192k"},
+        {Name: "720p",  Resolution: "1280x720",  Bitrate: "2500k", AudioRate: "128k"},
+        {Name: "480p",  Resolution: "854x480",   Bitrate: "1000k", AudioRate: "96k"},
     }
 
-	fmt.Println("details: ", details)
-	result, err := connect.Db.NewInsert().
+    //  semaphore — max 3 qualities running in parallel
+    semaphore := make(chan struct{}, 3)
+
+    //  waitgroup — wait for ALL qualities to finish
+    var wg sync.WaitGroup
+
+    //  collect errors from goroutines
+    errChan := make(chan error, len(qualities))
+
+    for _, q := range qualities {
+        wg.Add(1)
+
+        // capture loop variable — critical in Go
+        q := q
+
+        go func() {
+            defer wg.Done()
+
+            // acquire semaphore slot
+            semaphore <- struct{}{}
+            defer func() { <-semaphore }() // release when done
+
+            fmt.Printf("started transcoding: %s\n", q.Name)
+
+            err := transcodeQuality(inputFile, videoUploadId, userId, q)
+            if err != nil {
+                fmt.Printf("failed transcoding %s: %v\n", q.Name, err)
+                errChan <- fmt.Errorf("quality %s failed: %w", q.Name, err)
+                return
+            }
+
+            fmt.Printf("✅ finished transcoding: %s\n", q.Name)
+        }()
+    }
+
+    // wait for all goroutines to finish
+    wg.Wait()
+    close(errChan)
+
+    // collect any errors
+    var errs []string
+    for err := range errChan {
+        if err != nil {
+            errs = append(errs, err.Error())
+        }
+    }
+    if len(errs) > 0 {
+        return fmt.Errorf("transcoding errors: %s", strings.Join(errs, ", "))
+    }
+
+    fmt.Println(" all qualities transcoded successfully")
+    return nil
+}
+
+// separate function for single quality transcoding
+func transcodeQuality(inputFile string, videoUploadId int64, userId int64, q Quality) error {
+    now := time.Now()
+
+    // insert processing record
+    details := &models.VideoQuality{
+        VideoID:    videoUploadId,
+        UserID:     userId,
+        Quality:    q.Name,
+        Codec:      "H.264",
+        Bitrate:    q.Bitrate,
+        Resolution: q.Resolution,
+        Status:     "processing",
+        CreatedAt:  now,
+    }
+
+    _, err := connect.Db.NewInsert().
         Model(details).
         Returning("*").
         Exec(context.Background())
-
-	fmt.Println("result: ", result)
-	fmt.Println("error :", err)
     if err != nil {
-        return fmt.Errorf("failed to create details record: %w", err)
+        return fmt.Errorf("failed to insert quality record: %w", err)
     }
 
+    // create temp dir
+    uid := uuid.New()
+    qualityDir := fmt.Sprintf("/tmp/%s/%s", uid, q.Name)
+    os.MkdirAll(qualityDir, os.ModePerm)
+    defer os.RemoveAll(qualityDir) // cleanup after upload
 
-	qualities := []Quality{
-        {Resolution: "1920x1080", Bitrate: "4000k", Name: "1080p"},
-        {Resolution: "1280x720",  Bitrate: "2500k", Name: "720p"},
-        {Resolution: "854x480",   Bitrate: "1000k", Name: "480p"},
+    playlist := fmt.Sprintf("%s/index.m3u8", qualityDir)
+    segmentPattern := fmt.Sprintf("%s/segment%%03d.ts", qualityDir)
+
+    // run ffmpeg
+    err = ffmpeg.Input(inputFile).
+        Output(playlist, ffmpeg.KwArgs{
+            "vf":                  fmt.Sprintf("scale=%s", q.Resolution),
+            "c:v":                 "libx264",
+            "b:v":                 q.Bitrate,
+            "c:a":                 "aac",
+            "b:a":                 q.AudioRate,
+            "preset":              "fast",
+            "g":                   "48",
+            "keyint_min":          "48",
+            "hls_time":            "6",
+            "hls_list_size":       "0",
+            "hls_segment_filename": segmentPattern,
+            "f":                   "hls",
+        }).
+        OverWriteOutput().
+        Run()
+    if err != nil {
+        // update DB — failed
+        connect.Db.NewUpdate().
+            Model((*models.VideoQuality)(nil)).
+            Set("status = ?", "failed").
+            Where("id = ?", details.ID).
+            Exec(context.Background())
+        return fmt.Errorf("ffmpeg failed: %w", err)
     }
 
-	var transcodedUrls []string
-	
-	for _, q := range qualities {
-		uid:=uuid.New()
-        qualityDir := fmt.Sprintf("/tmp/%s/%s", uid, q.Name)
-		os.MkdirAll(qualityDir, os.ModePerm)
+    // upload all files to S3
+    files, err := os.ReadDir(qualityDir)
+    if err != nil {
+        return err
+    }
 
-		playlist := fmt.Sprintf("%s/index.m3u8", qualityDir)
-		segmentPattern := fmt.Sprintf("%s/segment%%03d.ts", qualityDir)
-        
+    var playlistS3Key string
+    var totalSize int64
 
-        err := ffmpeg.Input(inputFile).
-    	Output(playlist, ffmpeg.KwArgs{
-        "vf": fmt.Sprintf("scale=%s", q.Resolution),
-        "c:v": "libx264",
-        "b:v": q.Bitrate,
-        "c:a": "aac",
-        "preset": "fast",
-        "g": "48",
-        "keyint_min": "48",
-        "hls_time": "6",
-        "hls_list_size": "0",
-        "hls_segment_filename": segmentPattern,
-        "f": "hls",
-    }).
-    OverWriteOutput().
-    Run()
-	files, err := os.ReadDir(qualityDir)
-	if err != nil {
-		return err
-	}
+    for _, f := range files {
+        localFile := filepath.Join(qualityDir, f.Name())
 
+        // get file size
+        fileInfo, _ := os.Stat(localFile)
+        totalSize += fileInfo.Size()
 
-	fmt.Println("files: ", files)
+        s3Key := fmt.Sprintf("transcoded/%s/%s/%s", uid, q.Name, f.Name())
 
-	// update the db:
-	for _, f := range files {
-		
-		fmt.Println("file of files : ", f)
-		localFile := filepath.Join(qualityDir, f.Name())
-		s3Key := fmt.Sprintf(
-			"transcoded/%s/%s/%s",
-			uid,
-			q.Name,
-			f.Name(),
-		)
-        transcodedUrls = append(transcodedUrls, s3Key)
-		err := UploadToS3(localFile, s3Key)
-		if err != nil {
-			return err
-		}
-	
-	}
+        // track playlist key separately
+        if strings.HasSuffix(f.Name(), ".m3u8") {
+            playlistS3Key = s3Key
+        }
+
+        _, err := UploadToS3(localFile, s3Key)
+        if err != nil {
+            return fmt.Errorf("upload failed for %s: %w", f.Name(), err)
+        }
+
+        fmt.Printf("uploaded: %s\n", s3Key)
+    }
+
+    // update DB — completed
+    _, err = connect.Db.NewUpdate().
+        Model((*models.VideoQuality)(nil)).
+        Set("status = ?", "completed").
+        Set("playlist_key = ?", playlistS3Key).
+        Set("file_size_bytes = ?", totalSize).
+        Where("id = ?", details.ID).
+        Exec(context.Background())
+    if err != nil {
+        return fmt.Errorf("failed to update DB: %w", err)
+    }
+
+    return nil
 }
-return nil
 
-    }
-	
-}
 
 
 
