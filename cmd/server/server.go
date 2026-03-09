@@ -1,6 +1,7 @@
 package main
 
 import (
+	"viralforge/cmd/worker"
 	"viralforge/src/connect"
 	"viralforge/src/routes"
 
@@ -9,7 +10,11 @@ import (
 )
 
 func main(){
-	app:= fiber.New()
+
+	// start http server
+
+	go func(){
+		app:= fiber.New()
 	connect.PgConnect()
 
 	app.Use(cors.New(cors.Config{
@@ -18,4 +23,9 @@ func main(){
 }))
 	routes.NormalRoutes(app)
 	app.Listen(":8081")
+	}()
+
+	// start worker server
+	worker.StartWorkerServer()
+	
 }

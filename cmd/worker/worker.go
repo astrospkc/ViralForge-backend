@@ -3,11 +3,19 @@ package worker
 import (
 	"log"
 
+	"viralforge/cmd/worker/tasks"
+	"viralforge/src/env"
+
 	"github.com/hibiken/asynq"
 )
+
+
 func StartWorkerServer() {
-    // connect to same Redis
-    redisOpt := asynq.RedisClientOpt{Addr: "localhost:6379"}
+	envs:= env.NewEnv()
+	redisAddr:= envs.AIVEN_SERVICE_URI
+    
+	redisOpt := asynq.RedisClientOpt{Addr: redisAddr}
+    
 
     server := asynq.NewServer(redisOpt, asynq.Config{
         Concurrency: 5,   // 5 jobs processed simultaneously
