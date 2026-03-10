@@ -1,7 +1,9 @@
 package worker
 
 import (
+	"crypto/tls"
 	"log"
+	"net/url"
 
 	"viralforge/cmd/worker/tasks"
 	"viralforge/src/env"
@@ -12,16 +14,28 @@ import (
 
 func StartWorkerServer() {
 	envs:= env.NewEnv()
-	redisAddr:= envs.AIVEN_SERVICE_URI
-    
-	redisOpt := asynq.RedisClientOpt{Addr: redisAddr}
-    
+    // parse the full URI
+    u, err := url.Parse(envs.AIVEN_SERVICE_URI)
+    if err != nil {
+        log.Fatal("invalid aiven URI:", err)
+    }
+
+    // extract password
+    password:= envs.AIVEN_PASSWORD
+
+    // print to verify parsing is correct
+    log.Println("connecting to:", u.Host)
+
+    redisOpt := asynq.RedisClientOpt{
+        Addr:      u.Host,          // "host:port" only
+        Password:  password,
+        TLSConfig: &tls.Config{},   // Aiven requires TLS (rediss://)
+    }
 
     server := asynq.NewServer(redisOpt, asynq.Config{
-        Concurrency: 5,   // 5 jobs processed simultaneously
-                          // tune this based on your CPU
+        Concurrency: 5,
         Queues: map[string]int{
-            "transcoding": 10,  // queue name → priority weight
+            "transcoding": 10,
         },
     })
 

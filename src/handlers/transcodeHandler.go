@@ -21,7 +21,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
-	"github.com/hibiken/asynq"
 )
 
 
@@ -98,8 +97,6 @@ func GetPresignedUrl() fiber.Handler{
 
 	}
 }
-
-
 
 
 func GetDownloadUrl() fiber.Handler {
@@ -254,11 +251,7 @@ type VideoTranscodeResponse struct{
 
 func VideoTranscode() fiber.Handler{
 	return func(c fiber.Ctx) error{
-		envs:= env.NewEnv()
-
-		redisAddr:= envs.AIVEN_SERVICE_URI
-		AsynqClient := asynq.NewClient(asynq.RedisClientOpt{Addr:redisAddr})
-        defer AsynqClient.Close()
+		
 		user_id, err := FetchUserId(c) 
 		if err!=nil{
 			return c.Status(fiber.StatusBadRequest).JSON("failed to fetch user id")
@@ -275,13 +268,18 @@ func VideoTranscode() fiber.Handler{
             })
         }
 
-		_, err = AsynqClient.Enqueue(task)
+		fmt.Println("asyn1 client: ", connect.AsynqClient)
+		taskinfo, err := connect.AsynqClient.Enqueue(task)
+		fmt.Println("task info: ", taskinfo)
+		fmt.Println("error: ", err)
 		if err != nil {
             return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
                 "success": false,
                 "message": "failed to enqueue transcode task",
             })
         }
+		fmt.Println("task info: ", taskinfo)
+
 		
 		return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
             "success": true,
