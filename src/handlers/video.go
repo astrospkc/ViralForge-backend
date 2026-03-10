@@ -348,6 +348,57 @@ func GetTranscodedVideoDetails() fiber.Handler{
 	}
 }
 
+func GetTranscodedVideoStatus() fiber.Handler{
+	return func (c fiber.Ctx) error{
+		v_id, _:= strconv.Atoi(c.Params("v_id"))
+		
+
+		// get all the videos 
+		var v_details []models.VideoQuality 
+
+		err:= connect.Db.NewSelect().Model(&v_details).Where("video_upload_id = ?", v_id).Scan(c.Context())
+		if err!=nil{
+			return c.Status(fiber.StatusOK).JSON(fiber.Map{
+				"success": false,
+				"code":    500,
+				
+			})
+		}
+
+		if len(v_details)==0{
+			return c.Status(fiber.StatusOK).JSON(fiber.Map{
+				"success": true,
+				"code":    200,
+				"status":  "processing",
+				"data":    nil,
+			})
+		}
+
+		allDone:= true 
+		for _,q:= range v_details{
+			if q.Status !="completed"{
+				allDone=false
+				break;
+			}
+		}
+
+		if !allDone{
+			return c.Status(fiber.StatusOK).JSON(fiber.Map{
+                "success": true,
+                "code":    200,
+                "status":  "processing",
+                "data":    v_details,
+            })
+		}
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+            "success": true,
+            "code":    200,
+            "status":  "completed",
+            "data":    v_details,
+        })
+	}
+}
+
 
 
 
