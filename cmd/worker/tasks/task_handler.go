@@ -1,14 +1,15 @@
-// worker handler (does actualwork)
 package tasks
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"viralforge/service"
+	"viralforge/src/utils"
 
 	"github.com/hibiken/asynq"
 )
+
+
 
 func HandleTranscodeVideoTask(ctx context.Context, t*asynq.Task) error {
 	
@@ -22,7 +23,7 @@ func HandleTranscodeVideoTask(ctx context.Context, t*asynq.Task) error {
 
 
 	// call hls transcode 
-	err := service.HLSTranscode(payload.VideoUploadID, payload.InputKey, payload.UserId)
+	err := utils.HLSTranscode(payload.VideoUploadID, payload.InputKey, payload.UserId)
 	if err!=nil{
 		return err
 	}

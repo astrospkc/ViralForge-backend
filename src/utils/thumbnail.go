@@ -1,4 +1,4 @@
-package handlers
+package utils
 
 import (
 	"encoding/json"
@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"viralforge/src/utils"
 
 	"github.com/google/uuid"
 	ffmpeg "github.com/u2takey/ffmpeg-go"
@@ -133,7 +132,7 @@ func UploadThumbnails(thumbFiles []string, videoUploadId int64) ([]string, error
             videoUploadId, i+1,
         )
 
-        _,err := utils.UploadToS3(thumbFile, s3Key)
+        _,err := UploadToS3(thumbFile, s3Key)
         if err != nil {
             continue
         }

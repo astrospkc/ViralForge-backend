@@ -1,4 +1,4 @@
-package service
+package utils
 
 import (
 	"context"
@@ -11,8 +11,6 @@ import (
 
 	"viralforge/src/connect"
 	"viralforge/src/env"
-	"viralforge/src/handlers"
-	"viralforge/src/utils"
 
 	// "viralforge/src/handlers"
 
@@ -45,7 +43,7 @@ func HLSTranscode(videoUploadId int64, inputKey string, userId int64) error {
     }
 
     // download from S3
-    inputFile, err := utils.DownloadFromS3(inputKey)
+    inputFile, err := DownloadFromS3(inputKey)
     if err != nil {
         return fmt.Errorf("error while downloading from s3: %w", err)
     }
@@ -53,20 +51,20 @@ func HLSTranscode(videoUploadId int64, inputKey string, userId int64) error {
 
 
     // -----------THUMBNAIL EXTRACTION -------------
-    duration, err:= handlers.GetVideoDuration(inputFile)
+    duration, err:= GetVideoDuration(inputFile)
     if err!=nil{
         fmt.Println("could not get duration, using default:", err)
         duration = 60
     }
 
     // extract 5 thumbnails
-    thumbFiles, err:= tasks.ExtractMultipleThumbnail(inputFile, 5, duration)
+    thumbFiles, err:= ExtractMultipleThumbnail(inputFile, 5, duration)
     if err != nil {
         fmt.Println("thumbnail extraction failed:", err)
         
     }
     // upload to s3
-    thumbUrls,_:=tasks.UploadThumbnails(thumbFiles,videoUploadId)
+    thumbUrls,_:=UploadThumbnails(thumbFiles,videoUploadId)
     // now save to db
     if len(thumbUrls) > 0 {
         connect.Db.NewUpdate().
@@ -224,7 +222,7 @@ func transcodeQuality(inputFile string, videoUploadId int64, userId int64, q Qua
             playlistS3Key = s3Key
         }
 
-        _, err := utils.UploadToS3(localFile, s3Key)
+        _, err := UploadToS3(localFile, s3Key)
         if err != nil {
             return fmt.Errorf("upload failed for %s: %w", f.Name(), err)
         }
