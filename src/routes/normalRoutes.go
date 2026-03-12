@@ -25,6 +25,7 @@ func NormalRoutes(app *fiber.App){
 	video.Post("/transcode", handlers.VideoTranscode())
 	video.Get("/details/:v_id", handlers.GetTranscodedVideoDetails())
 	video.Get("/status/:v_id", handlers.GetTranscodedVideoStatus())
+	video.Put("/cdnUpdate", handlers.UpdateCDN_Url())
 	
 
 	

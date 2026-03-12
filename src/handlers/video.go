@@ -400,6 +400,44 @@ func GetTranscodedVideoStatus() fiber.Handler{
 }
 
 
+func UpdateCDN_Url() fiber.Handler{
+	return func (c fiber.Ctx) error{
+		envs:= env.NewEnv()
+
+		var v_details []models.VideoQuality 
+		err:= connect.Db.NewSelect().Model(&v_details).Where("cdn_url = ?","").Scan(c.Context())
+		if err!=nil{
+			return c.Status(fiber.StatusBadRequest).JSON(err)
+		}
+
+		for _,q := range v_details{
+		
+			playlist_key := q.PlaylistKey 
+			s3Base := envs.S3_BASE_URL
+
+			cdnUrl:= fmt.Sprintf("%s/%s", s3Base, playlist_key)
+
+			// now update the db
+			_, err:= connect.Db.NewUpdate().Model((*models.VideoQuality)(nil)).Set("cdn_url = ?", cdnUrl).Where("status = ?","completed").Exec(context.Background())
+
+			if err!=nil{
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+					"message":"failed to update db",
+					"success":500,
+				})
+			}
+		}
+		return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
+			"message":"updated successfully",
+			"success":200,
+		})
+	}
+}
+
+
+
+
+
 
 
 

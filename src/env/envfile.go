@@ -16,9 +16,11 @@ type ENV struct {
 	S3_BUCKET_NAME				string `mapstructure:"S3_BUCKET_NAME"`
 	AWS_SECRET_ACCESS_KEY		string `mapstructure:"AWS_SECRET_ACCESS_KEY"`
 	AWS_ACCESS_KEY_ID			string `mapstructure:"AWS_ACCESS_KEY_ID"`
+	S3_BASE_URL					string `mapstructure:"S3_BASE_URL"`
 	AIVEN_SERVICE_URI			string `mapstructure:"AIVEN_SERVICE_URI"`
 	AIVEN_HOST					string `mapstructure:"AIVEN_HOST"`
 	AIVEN_PASSWORD 				string `mapstructure:"AIVEN_PASSWORD"`
+
 }
 
 func NewEnv() *ENV{

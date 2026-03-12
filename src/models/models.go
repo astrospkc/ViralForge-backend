@@ -45,6 +45,7 @@ type VideoQuality struct {
     Resolution    string `bun:"type:varchar(20)" json:"resolution"`   // "1920x1080"
     PlaylistKey   string `bun:"type:text" json:"playlist_key"`           // S3 key
     CDNUrl        string `bun:"type:text" json:"cdn_url"`           // CloudFront URL
+	Thumbnail     string `bun:"type:text" json:"thumbnail"`
     Status        string `bun:"type:varchar(20)" json:"status"`   // "ready"
     FileSizeBytes int64   `bun:"," json:"file_size_bytes"`                           // for analytics
     CreatedAt     time.Time

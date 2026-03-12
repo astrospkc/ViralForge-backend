@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 	"viralforge/src/connect"
+	"viralforge/src/env"
 	"viralforge/src/utils"
 
 	// "viralforge/src/handlers"
@@ -110,6 +111,7 @@ func HLSTranscode(videoUploadId int64, inputKey string, userId int64) error {
 // separate function for single quality transcoding
 func transcodeQuality(inputFile string, videoUploadId int64, userId int64, q Quality) error {
     now := time.Now()
+    envs:= env.NewEnv()
 
     // insert processing record
     details := &models.VideoQuality{
@@ -199,12 +201,18 @@ func transcodeQuality(inputFile string, videoUploadId int64, userId int64, q Qua
         fmt.Printf("uploaded: %s\n", s3Key)
     }
 
+    s3Base := envs.S3_BASE_URL
+    // "https://your-bucket.s3.ap-south-1.amazonaws.com"
+
+    cdnUrl := fmt.Sprintf("%s/%s", s3Base, playlistS3Key)
+
     // update DB — completed
     _, err = connect.Db.NewUpdate().
         Model((*models.VideoQuality)(nil)).
         Set("status = ?", "completed").
         Set("playlist_key = ?", playlistS3Key).
         Set("file_size_bytes = ?", totalSize).
+        Set("cdn_url = ?", cdnUrl).
         Where("id = ?", details.ID).
         Exec(context.Background())
     if err != nil {
@@ -213,3 +221,5 @@ func transcodeQuality(inputFile string, videoUploadId int64, userId int64, q Qua
 
     return nil
 }
+
+

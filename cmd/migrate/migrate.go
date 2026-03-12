@@ -1,4 +1,4 @@
-package connect
+package main
 
 import (
 	"context"
@@ -6,19 +6,16 @@ import (
 	"fmt"
 	"log"
 	"time"
-
-	// "time"
+	database "viralforge/internal"
 
 	"viralforge/src/env"
-	"viralforge/src/models"
 
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
 )
-var Db *bun.DB
 
-func PgConnect() {
+func main(){
 	ctx := context.Background()
 
 	envs := env.NewEnv()
@@ -39,26 +36,13 @@ func PgConnect() {
 		log.Fatalf("Neon DB connection failed: %v", err)
 	}
 
-	Db = bun.NewDB(sqldb, pgdialect.New())
-	fmt.Println("Db; ", Db)
-
-	// Create tables safely
-	if _, err := Db.NewCreateTable().
-		Model((*models.User)(nil)).
-		IfNotExists().
-		Exec(ctx); err != nil {
-		log.Fatal(err)
+	Db := bun.NewDB(sqldb, pgdialect.New())
+	
+	
+	err := database.RunMigrations(ctx,Db)
+	if err != nil {
+		fmt.Println("error in migration")
+		panic(err)
 	}
-
-	if _, err := Db.NewCreateTable().
-		Model((*models.VideoUpload)(nil)).
-		IfNotExists().
-		Exec(ctx); err != nil {
-		log.Fatal(err)
-	}
-
-	if _, err:= Db.NewCreateTable().Model((*models.VideoQuality)(nil)).IfNotExists().Exec(ctx); err!=nil{
-		log.Fatal((err))
-	}			
-	log.Println("Connected to Neon DB successfully 🚀")
+	fmt.Println("migrate done")
 }
