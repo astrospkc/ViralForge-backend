@@ -11,6 +11,8 @@ import (
 // task name :route name for jobs
 const TypeTranscodeVideo = "transcode:video"
 
+const TypeThumbnail ="thumbnail:video"
+
 // payload: everything the worker needs
 type TranscodeVideoPayload struct{
 	VideoUploadID int64 
