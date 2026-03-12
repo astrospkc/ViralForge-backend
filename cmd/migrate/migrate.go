@@ -7,6 +7,7 @@ import (
 	"log"
 	"time"
 	database "viralforge/internal"
+	"viralforge/migrations"
 
 	"viralforge/src/env"
 
@@ -37,7 +38,9 @@ func main(){
 	}
 
 	Db := bun.NewDB(sqldb, pgdialect.New())
-	
+	for _, m := range migrations.Migrations.Sorted() {
+        fmt.Println("registered:", m.Name)
+    }
 	
 	err := database.RunMigrations(ctx,Db)
 	if err != nil {
