@@ -28,8 +28,8 @@ type Quality struct {
 	Bitrate    string
 	AudioRate  string  // ← add this
 }
-func HLSTranscode(videoUploadId int64, inputKey string, userId int64) error {
-
+func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64) error {
+    fmt.Println("video id: ", videoUploadId)
     // check if already exists
     exists, err := connect.Db.NewSelect().
         Model((*models.VideoQuality)(nil)).
@@ -38,17 +38,58 @@ func HLSTranscode(videoUploadId int64, inputKey string, userId int64) error {
     if err != nil {
         return fmt.Errorf("failed to check if video exists: %w", err)
     }
+
+    var inputFile string
     if exists {
+        fmt.Println("heelo this ")
+        var video models.VideoUpload
+        _= connect.Db.NewSelect().Model(&video).Where("id = ?", videoUploadId).Scan(context.Background())
+        
+        fmt.Println("video thumbnail: ", video)
+        if len(video.Thumbnails)==0{
+            // download from S3
+        inputFile, err = DownloadFromS3(inputKey)
+        if err != nil {
+            return fmt.Errorf("error while downloading from s3: %w", err)
+        }
+        defer os.Remove(inputFile)
+
+        // -----------THUMBNAIL EXTRACTION -------------
+        duration, err:= GetVideoDuration(inputFile)
+        if err!=nil{
+            fmt.Println("could not get duration, using default:", err)
+            duration = 60
+        }
+
+        // extract 5 thumbnails
+        thumbFiles, err:= ExtractMultipleThumbnail(inputFile, 5, duration)
+        if err != nil {
+            fmt.Println("thumbnail extraction failed:", err)
+            
+        }
+        // upload to s3
+        thumbUrls,_:=UploadThumbnails(thumbFiles,videoUploadId)
+        // now save to db
+        if len(thumbUrls) > 0 {
+            connect.Db.NewUpdate().
+                TableExpr("video_uploads").
+                Set("thumbnail_urls = ?", pgdialect.Array(thumbUrls)).
+                Set("selected_thumb = ?", thumbUrls[0]).  // default to first
+                Where("id = ?", videoUploadId).
+                Exec(context.Background())
+        }
+        // ----------------------------------
+
+        }
         return nil
     }
 
     // download from S3
-    inputFile, err := DownloadFromS3(inputKey)
+    inputFile, err = DownloadFromS3(inputKey)
     if err != nil {
         return fmt.Errorf("error while downloading from s3: %w", err)
     }
     defer os.Remove(inputFile)
-
 
     // -----------THUMBNAIL EXTRACTION -------------
     duration, err:= GetVideoDuration(inputFile)
@@ -74,7 +115,9 @@ func HLSTranscode(videoUploadId int64, inputKey string, userId int64) error {
             Where("id = ?", videoUploadId).
             Exec(context.Background())
     }
+    // ----------------------------------
 
+    
 
 
     var qualities = []Quality{

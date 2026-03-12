@@ -10,7 +10,7 @@ import (
 
 func GetThumbnailOptions() fiber.Handler {
     return func(c fiber.Ctx) error {
-        videoId := c.Params("videoId")
+        videoId := c.Params("v_id")
 
         var video models.VideoUpload
         err := connect.Db.NewSelect().
