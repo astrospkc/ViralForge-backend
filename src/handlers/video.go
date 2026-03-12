@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"time"
+
 	"viralforge/cmd/worker/tasks"
 	"viralforge/src/connect"
 	"viralforge/src/env"
@@ -299,7 +300,7 @@ func VideoTranscode() fiber.Handler{
 	}
 
 
-func getContentType(filePath string) string {
+func GetContentType(filePath string) string {
 
     ext := strings.ToLower(filepath.Ext(filePath))
 

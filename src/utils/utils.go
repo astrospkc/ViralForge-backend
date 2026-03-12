@@ -120,6 +120,12 @@ func getContentType(filePath string) string {
         return "video/MP2T"
     case ".mp4":
         return "video/mp4"
+    case ".jpg", ".jpeg":
+        return "image/jpeg"   // ← add this for thumbnails
+    case ".png":
+        return "image/png"
+    case ".webp":
+        return "image/webp"
     default:
         return "application/octet-stream"
     }

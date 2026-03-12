@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"viralforge/src/service"
+	"viralforge/service"
 
 	"github.com/hibiken/asynq"
 )

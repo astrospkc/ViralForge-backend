@@ -1,9 +1,14 @@
-package service
+package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"viralforge/src/utils"
 
 	"github.com/google/uuid"
 	ffmpeg "github.com/u2takey/ffmpeg-go"
@@ -88,5 +93,54 @@ func ExtractMultipleThumbnail(inputFile string, count int, videoDuration float64
 }
 
 
+func GetVideoDuration(inputFile string)(float64, error){
+	out, err := exec.Command(
+        "ffprobe",
+        "-v", "quiet",
+        "-print_format", "json",
+        "-show_format",
+        inputFile,
+    ).Output()
 
-func UploadThumbnails()
+	if err != nil {
+        return 0, fmt.Errorf("ffprobe failed: %w", err)
+    }
+
+    var result struct {
+        Format struct {
+            Duration string `json:"duration"`
+        } `json:"format"`
+    }
+
+	if err := json.Unmarshal(out, &result); err != nil {
+        return 0, err
+    }
+
+    duration, err := strconv.ParseFloat(
+        strings.TrimSpace(result.Format.Duration), 64,
+    )
+    return duration, err
+}
+
+func UploadThumbnails(thumbFiles []string, videoUploadId int64) ([]string, error) {
+
+    var cdnUrls []string
+    s3Base := os.Getenv("S3_BASE_URL")
+
+    for i, thumbFile := range thumbFiles {
+        s3Key := fmt.Sprintf(
+            "thumbnails/%d/thumb_%d.jpg",
+            videoUploadId, i+1,
+        )
+
+        _,err := utils.UploadToS3(thumbFile, s3Key)
+        if err != nil {
+            continue
+        }
+
+        cdnUrl := fmt.Sprintf("%s/%s", s3Base, s3Key)
+        cdnUrls = append(cdnUrls, cdnUrl)
+    }
+
+    return cdnUrls, nil
+}

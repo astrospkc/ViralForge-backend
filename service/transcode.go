@@ -8,8 +8,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
 	"viralforge/src/connect"
 	"viralforge/src/env"
+	"viralforge/src/handlers"
 	"viralforge/src/utils"
 
 	// "viralforge/src/handlers"
@@ -17,6 +19,7 @@ import (
 	"viralforge/src/models"
 
 	"github.com/google/uuid"
+	"github.com/uptrace/bun/dialect/pgdialect"
 
 	ffmpeg "github.com/u2takey/ffmpeg-go"
 )
@@ -47,6 +50,34 @@ func HLSTranscode(videoUploadId int64, inputKey string, userId int64) error {
         return fmt.Errorf("error while downloading from s3: %w", err)
     }
     defer os.Remove(inputFile)
+
+
+    // -----------THUMBNAIL EXTRACTION -------------
+    duration, err:= handlers.GetVideoDuration(inputFile)
+    if err!=nil{
+        fmt.Println("could not get duration, using default:", err)
+        duration = 60
+    }
+
+    // extract 5 thumbnails
+    thumbFiles, err:= tasks.ExtractMultipleThumbnail(inputFile, 5, duration)
+    if err != nil {
+        fmt.Println("thumbnail extraction failed:", err)
+        
+    }
+    // upload to s3
+    thumbUrls,_:=tasks.UploadThumbnails(thumbFiles,videoUploadId)
+    // now save to db
+    if len(thumbUrls) > 0 {
+        connect.Db.NewUpdate().
+            TableExpr("video_uploads").
+            Set("thumbnail_urls = ?", pgdialect.Array(thumbUrls)).
+            Set("selected_thumb = ?", thumbUrls[0]).  // default to first
+            Where("id = ?", videoUploadId).
+            Exec(context.Background())
+    }
+
+
 
     var qualities = []Quality{
         {Name: "1080p", Resolution: "1920x1080", Bitrate: "4000k", AudioRate: "192k"},
