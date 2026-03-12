@@ -49,7 +49,42 @@ func ExtractThumbnail(inputFile string, opts ThumbnailOptions)(string, error){
 
     return thumbFile, nil
 
-	
+}
+
+func ExtractMultipleThumbnail(inputFile string, count int, videoDuration float64)([]string, error){
+	thumbDir := fmt.Sprintf("/tmp/thumbs-%s", uuid.New().String())
+    os.MkdirAll(thumbDir, os.ModePerm)
+
+	interval := videoDuration / float64(count+1)
+
+	var thumbFiles []string 
+
+	for i := 1; i <= count; i++ {
+        atSecond := interval * float64(i)
+        thumbFile := filepath.Join(thumbDir, fmt.Sprintf("thumb_%d.jpg", i))
+
+        err := ffmpeg.Input(inputFile, ffmpeg.KwArgs{
+            "ss": atSecond,
+        }).
+        Output(thumbFile, ffmpeg.KwArgs{
+            "vframes": 1,
+            "q:v":     2,
+            "vf":      "scale=1280:720",
+        }).
+        OverWriteOutput().
+        Run()
+
+        if err != nil {
+            continue  // skip failed frames, don't stop
+        }
+
+        thumbFiles = append(thumbFiles, thumbFile)
+    }
+	if len(thumbFiles) == 0 {
+        return nil, fmt.Errorf("no thumbnails extracted")
+    }
+
+    return thumbFiles, nil
 }
 
 
