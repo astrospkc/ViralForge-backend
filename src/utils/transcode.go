@@ -41,12 +41,10 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
 
     var inputFile string
     if exists {
-        fmt.Println("heelo this ")
         var video models.VideoUpload
         _= connect.Db.NewSelect().Model(&video).Where("id = ?", videoUploadId).Scan(context.Background())
         
-        fmt.Println("video thumbnail: ", video)
-        if len(video.Thumbnails)==0{
+        if len(video.Thumbnails)==0 {
             // download from S3
         inputFile, err = DownloadFromS3(inputKey)
         if err != nil {
@@ -72,9 +70,9 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
         // now save to db
         if len(thumbUrls) > 0 {
             connect.Db.NewUpdate().
-                TableExpr("video_uploads").
-                Set("thumbnail_urls = ?", pgdialect.Array(thumbUrls)).
-                Set("selected_thumb = ?", thumbUrls[0]).  // default to first
+                Model((*models.VideoUpload)(nil)).
+                Set("thumbnails = ?", pgdialect.Array(thumbUrls)).
+                Set("selected_thumbnail = ?", thumbUrls[0]).  // default to first
                 Where("id = ?", videoUploadId).
                 Exec(context.Background())
         }
@@ -117,9 +115,6 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
     }
     // ----------------------------------
 
-    
-
-
     var qualities = []Quality{
         {Name: "1080p", Resolution: "1920x1080", Bitrate: "4000k", AudioRate: "192k"},
         {Name: "720p",  Resolution: "1280x720",  Bitrate: "2500k", AudioRate: "128k"},
@@ -148,8 +143,6 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
             semaphore <- struct{}{}
             defer func() { <-semaphore }() // release when done
 
-            fmt.Printf("started transcoding: %s\n", q.Name)
-
             err := transcodeQuality(inputFile, videoUploadId, userId, q)
             if err != nil {
                 fmt.Printf("failed transcoding %s: %v\n", q.Name, err)
@@ -157,7 +150,6 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
                 return
             }
 
-            fmt.Printf("✅ finished transcoding: %s\n", q.Name)
         }()
     }
 
@@ -176,7 +168,6 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
         return fmt.Errorf("transcoding errors: %s", strings.Join(errs, ", "))
     }
 
-    fmt.Println(" all qualities transcoded successfully")
     return nil
 }
 
@@ -270,7 +261,6 @@ func transcodeQuality(inputFile string, videoUploadId int64, userId int64, q Qua
             return fmt.Errorf("upload failed for %s: %w", f.Name(), err)
         }
 
-        fmt.Printf("uploaded: %s\n", s3Key)
     }
 
     s3Base := envs.S3_BASE_URL

@@ -29,6 +29,4 @@ func NormalRoutes(app *fiber.App){
 	video.Get("/thumbnail_options/:v_id",handlers.VideoTranscode())
 	
 
-	
-
 }

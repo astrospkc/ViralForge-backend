@@ -25,7 +25,7 @@ type VideoUpload struct {
 	UserID    int64     `bun:",notnull" json:"user_id"`
 	FileURL string 		`bun:",notnull" json:"file_url"`
 	FileType string   `bun:",notnull" json:"file_type"`
-	Thumbnails         []string `bun:"thumbnails,type:text[]" json:"thumbnails"`
+	Thumbnails         []string `bun:"thumbnails,type:text[],notnull" json:"thumbnails"`
     SelectedThumbnail  string   `bun:"selected_thumbnail,type:text" json:"selected_thumbnail"`
 	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
     UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`

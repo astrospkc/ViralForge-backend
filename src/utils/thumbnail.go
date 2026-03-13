@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"viralforge/src/env"
 
 	"github.com/google/uuid"
 	ffmpeg "github.com/u2takey/ffmpeg-go"
@@ -122,9 +123,9 @@ func GetVideoDuration(inputFile string)(float64, error){
 }
 
 func UploadThumbnails(thumbFiles []string, videoUploadId int64) ([]string, error) {
-
+    envs:=env.NewEnv()
     var cdnUrls []string
-    s3Base := os.Getenv("S3_BASE_URL")
+    s3Base := envs.S3_BASE_URL
 
     for i, thumbFile := range thumbFiles {
         s3Key := fmt.Sprintf(
