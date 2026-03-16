@@ -104,3 +104,48 @@ type Clip struct {
 	VideoUpload    *VideoQuality `bun:"rel:belongs-to,join:videodetails_upload_id=id" json:"videodetails_upload,omitempty"`
 	User           *User        `bun:"rel:belongs-to,join:user_id=id" json:"user,omitempty"`
 }
+
+type CreatorSystem struct{
+    ID            int64  `bun:",pk,autoincrement" json:"id"`
+	UserID		  int64   `bun:",notnull" json:"user_id"`
+	Followers     int64   `bun:"," json:"followers"`
+	Niche 		  int64   `bun:"," json:"niche"`
+	Earnings      float64 `bun:"," json:"earnings"`
+	Ratings 	  int     `bun:"," json:"ratings"`
+}
+
+
+
+type Post struct{
+	ID            int64  `bun:",pk,autoincrement" json:"id"`
+	CreatorID		  int64   `bun:",notnull" json:"user_id"`
+	VideoID       int64  `bun:",notnull" json:"video_id"` // if shorts then - clipid | if video then - video_quality_id
+	ProductID	  int64  `bun:",notnull" json:"product_id"`
+	BusinessID	  int64  `bun:",notnull" json:"business_id"`
+	CreatedAt     time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
+	Visibility    string    `bun:",notnull" json:"visibility"`
+	Title         string    `bun:",notnull" json:"title"`
+	Description   string    `bun:",notnull" json:"description"`
+	Tags          []string  `bun:",notnull" json:"tags"`
+	Thumbnail     string    `bun:",notnull" json:"thumbnail"`
+	LikesCount    int64     `bun:",notnull" json:"likes_count"`
+	ViewsCount    int64     `bun:",notnull" json:"views_count"`
+
+}
+
+
+
+
+// authentication  and user
+// creator system
+// business system
+// video content system
+// post/feed
+// review
+// product
+// search
+// recommendation
+// shorts
+// location
+// notification 
+// analytics
