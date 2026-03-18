@@ -17,16 +17,32 @@ type User struct {
     UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
 }
 
+type PublishStatusEnum string
+
+const (
+	PublishEnum_Draft   PublishStatusEnum="draft"
+	PublishEnum_Published  PublishStatusEnum="published"
+
+
+)
 
 type VideoUpload struct {
 	bun.BaseModel `bun:"table:video_uploads,alias:vdu"`
 
 	ID		int64		`bun:",pk,autoincrement" json:"id"`
 	UserID    int64     `bun:",notnull" json:"user_id"`
+	Title         string    `bun:",notnull" json:"title"`
+	Description   string    `bun:",notnull" json:"description"`
+	Tags          string  `bun:",notnull" json:"tags"`
 	FileURL string 		`bun:",notnull" json:"file_url"`
 	FileType string   `bun:",notnull" json:"file_type"`
 	Thumbnails         []string `bun:"thumbnails,type:text[],notnull" json:"thumbnails"`
     SelectedThumbnail  string   `bun:"selected_thumbnail,type:text" json:"selected_thumbnail"`
+	LikesCount    int64     `bun:",notnull" json:"likes_count"`
+	ViewsCount    int64     `bun:",notnull" json:"views_count"`
+	PublishStatus PublishStatusEnum    `bun:",notnull" json:"publish_status"` // draft | published
+	IsDeleted     bool   `bun:"," json:"is_deleted"`
+	TranscodeStatus bool `bun:"," json:"transcode_status"`
 	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
     UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
 
@@ -51,6 +67,8 @@ type VideoQuality struct {
     Status        string `bun:"type:varchar(20)" json:"status"`   // "ready"
     FileSizeBytes int64   `bun:"," json:"file_size_bytes"`                           // for analytics
     CreatedAt     time.Time
+	IsDeleted    bool    `bun:"," json:"is_deleted"`
+
 	// relation back to VideoUpload
      VideoUpload *VideoUpload `bun:"rel:belongs-to,join:video_upload_id=id" json:"video_uploads,omitempty"`
 }
@@ -112,6 +130,7 @@ type CreatorSystem struct{
 	Niche 		  int64   `bun:"," json:"niche"`
 	Earnings      float64 `bun:"," json:"earnings"`
 	Ratings 	  int     `bun:"," json:"ratings"`
+	IsDeleted    bool    `bun:"," json:"is_deleted"`
 }
 
 
@@ -119,17 +138,16 @@ type CreatorSystem struct{
 type Post struct{
 	ID            int64  `bun:",pk,autoincrement" json:"id"`
 	CreatorID		  int64   `bun:",notnull" json:"user_id"`
-	VideoID       int64  `bun:",notnull" json:"video_id"` // if shorts then - clipid | if video then - video_quality_id
-	ProductID	  int64  `bun:",notnull" json:"product_id"`
-	BusinessID	  int64  `bun:",notnull" json:"business_id"`
+	VideoID       int64  `bun:",notnull" json:"video_upload_id"` // if shorts then - clipid | if video then - video_quality_id
 	CreatedAt     time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
 	Visibility    string    `bun:",notnull" json:"visibility"`
 	Title         string    `bun:",notnull" json:"title"`
 	Description   string    `bun:",notnull" json:"description"`
-	Tags          []string  `bun:",notnull" json:"tags"`
+	Tags          string  `bun:",notnull" json:"tags"`
 	Thumbnail     string    `bun:",notnull" json:"thumbnail"`
 	LikesCount    int64     `bun:",notnull" json:"likes_count"`
 	ViewsCount    int64     `bun:",notnull" json:"views_count"`
+	IsDeleted     bool   `bun:"," json:"is_deleted"`
 
 }
 
