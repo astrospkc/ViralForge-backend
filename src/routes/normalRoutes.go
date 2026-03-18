@@ -21,12 +21,12 @@ func NormalRoutes(app *fiber.App){
 	video.Get("/get_all_videos", handlers.GetListOfVideoFiles())
 	video.Get("/get_download_url", handlers.GetDownloadUrl())
 	video.Post("/get_presigned_url", handlers.GetPresignedUrl())
-	video.Post("/create_video", handlers.AddVideoFileKeyToDB())
-	video.Post("/transcode", handlers.VideoTranscode())
+	video.Post("/create_video", handlers.AddVideoDetailsToDB())
+	// video.Post("/transcode", handlers.VideoTranscode())
 	video.Get("/details/:v_id", handlers.GetTranscodedVideoDetails())
 	video.Get("/status/:v_id", handlers.GetTranscodedVideoStatus())
 	video.Put("/cdnUpdate", handlers.UpdateCDN_Url())
-	video.Get("/thumbnail_options/:v_id",handlers.VideoTranscode())
+	// video.Get("/thumbnail_options/:v_id",handlers.VideoTranscode())
 	
 
 }

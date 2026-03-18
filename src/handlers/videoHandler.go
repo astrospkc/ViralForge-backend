@@ -129,7 +129,7 @@ type VideoUploadResponse struct{
 }
 
 //TODO: add uploaded video to job queue ( not directly to the db , worker will do the job of inserting the video to s3 , optional : in transcoding job, start transcoding) for uploading videos to the s3 and do not wan
-func AddVideoFileKeyToDB() fiber.Handler{
+func AddVideoDetailsToDB() fiber.Handler{
 	return func(c fiber.Ctx) error{
 		u_id, err:=FetchUserId(c)
 		if err!=nil{
@@ -148,6 +148,7 @@ func AddVideoFileKeyToDB() fiber.Handler{
 		// }
 
 		var body struct {
+			
 			Filename  string `json:"filename"`
 			FileType  string `json:"fileType"`
 			ObjectKey string `json:"objectKey"`
@@ -176,6 +177,7 @@ func AddVideoFileKeyToDB() fiber.Handler{
 		
 		videoUpload:=&models.VideoUpload{
 			UserID: u_id,
+			
 			FileURL: body.ObjectKey,
 			FileType: body.FileType,
 		}
@@ -250,46 +252,21 @@ type VideoTranscodeResponse struct{
 	Code   int
 }
 
-func VideoTranscode() fiber.Handler{
-	return func(c fiber.Ctx) error{
-		
-		user_id, err := FetchUserId(c) 
-		if err!=nil{
-			return c.Status(fiber.StatusBadRequest).JSON("failed to fetch user id")
-		}
-		object_key := c.Query("objectKey")
-		videoId,_ := strconv.Atoi(c.Query("videoId"))
-		v_id := int64(videoId)
+// userid , objectkey, videoid
 
-		task, err:= tasks.NewTranscodeVideoTask(v_id, object_key, user_id)
-		if err != nil {
-            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-                "success": false,
-                "message": "failed to create transcode task",
-            })
-        }
+func VideoTranscode(userID int64, objectKey string, videoID int64) error {
 
-		fmt.Println("asyn1 client: ", connect.AsynqClient)
-		taskinfo, err := connect.AsynqClient.Enqueue(task)
-		fmt.Println("task info: ", taskinfo)
-		fmt.Println("error: ", err)
-		if err != nil {
-            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-                "success": false,
-                "message": "failed to enqueue transcode task",
-            })
-        }
-		fmt.Println("task info: ", taskinfo)
-
-		
-		return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
-            "success": true,
-            "code":    202,
-            "message": "transcoding started",
-            "video_id": v_id,
-            // frontend polls /video/status/:id to track progress
-        })
+	task, err := tasks.NewTranscodeVideoTask(videoID, objectKey, userID)
+	if err != nil {
+		return err
 	}
+
+	_, err = connect.AsynqClient.Enqueue(task)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 	type Quality struct {
@@ -433,6 +410,81 @@ func UpdateCDN_Url() fiber.Handler{
 			"success":200,
 		})
 	}
+}
+
+type VideoData struct {
+	Video  *models.VideoUpload 
+	VideoQuality *models.VideoQuality
+}
+type VideoResponse struct{
+	Data VideoData 
+	Success bool 
+	Code    int
+}
+
+type VideoMetaData struct {
+	Title       string
+	Description string
+	Tags        []string
+	Thumbnail   string
+	VideoId     int64
+	ObjectKey   string
+}
+func UpdateVideo() fiber.Handler {
+	return func(c fiber.Ctx) error {
+
+		userID, err := FetchUserId(c)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(VideoResponse{
+				Success: false,
+				Code:    500,
+			})
+		}
+		v_id,_ := strconv.Atoi(c.Params("v_id"))
+		var body VideoMetaData
+
+		if err := c.Bind().Body(&body); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(VideoResponse{
+				Success: false,
+				Code:    400,
+			})
+		}
+		body.VideoId = int64(v_id)
+
+
+		// ✅ Step 1: Update DB (metadata)
+		err = UpdateVideoMetadata(body)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(VideoResponse{
+				Success: false,
+				Code:    500,
+			})
+		}
+
+		// ✅ Step 2: Push async job (NO goroutine needed)
+		err = VideoTranscode(userID, body.ObjectKey, body.VideoId)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(VideoResponse{
+				Success: false,
+				Code:    500,
+			})
+		}
+
+		return c.Status(fiber.StatusAccepted).JSON(VideoResponse{
+			Success: true,
+			Code:    202,
+		})
+	}
+}
+
+func UpdateVideoMetadata(data VideoMetaData)error{
+	// update the db 
+	res,err := connect.Db.NewUpdate().Model((*models.VideoUpload)(nil)).Where("id = ?", data.VideoId).Set("title = ?", data.Title).Set("description = ?", data.Description).Set("tags = ?", data.Tags).Exec(context.Background())
+	if err!=nil{
+		return err
+	}
+	fmt.Println("result of updated meta data: ", res)
+	return nil
 }
 
 
