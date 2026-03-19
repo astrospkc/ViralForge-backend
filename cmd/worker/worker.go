@@ -42,6 +42,7 @@ func StartWorkerServer() {
     // register which function handles which task type
     mux := asynq.NewServeMux()
     mux.HandleFunc(tasks.TypeTranscodeVideo, tasks.HandleTranscodeVideoTask)
+    mux.HandleFunc(tasks.TypeDeleteVideo, tasks.HandleDeleteVideoTask)
 
     if err := server.Run(mux); err != nil {
         log.Fatal("worker server failed:", err)

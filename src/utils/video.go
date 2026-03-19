@@ -1,0 +1,73 @@
+package utils
+
+import (
+	"context"
+	"fmt"
+	"viralforge/src/connect"
+	"viralforge/src/models"
+)
+
+func DeleteVideoTask(ctx context.Context, videoId int64, userId int64) error {
+    
+    exists, err := connect.Db.NewSelect().
+        Model((*models.VideoUpload)(nil)).
+        Where("id = ?", videoId).
+        Exists(ctx)
+    if err != nil {
+        return fmt.Errorf("checking video existence: %w", err)
+    }
+
+    // Only fetch + delete upload record if it exists
+    if exists {
+        var uploadData models.VideoUpload
+        err = connect.Db.NewSelect().
+            Model(&uploadData).
+            Where("id = ?", videoId).
+            Scan(ctx)
+        if err != nil {
+            return fmt.Errorf("fetching video upload: %w", err)
+        }
+
+        if _, err = DeleteFromS3(uploadData.FileURL); err != nil {
+            return fmt.Errorf("deleting raw video from S3: %w", err)
+        }
+
+        _, err = connect.Db.NewDelete().
+            Model((*models.VideoUpload)(nil)).
+            Where("id = ?", videoId).
+            Exec(ctx)
+        if err != nil {
+            return fmt.Errorf("deleting video upload from db: %w", err)
+        }
+    }
+
+    // Always attempt quality cleanup (handles orphans too)
+    var qualityData []models.VideoQuality
+    err = connect.Db.NewSelect().
+        Model(&qualityData).
+        Where("video_upload_id = ?", videoId).
+        Scan(ctx)
+    if err != nil {
+        return fmt.Errorf("fetching video qualities: %w", err)
+    }
+
+    if len(qualityData) == 0 && !exists {
+        return nil // Truly nothing existed
+    }
+
+    for _, q := range qualityData {
+        if _, err = DeleteFromS3(q.PlaylistKey); err != nil {
+            return fmt.Errorf("deleting quality %d from S3: %w", q.ID, err)
+        }
+    }
+
+    _, err = connect.Db.NewDelete().
+        Model((*models.VideoQuality)(nil)).
+        Where("video_upload_id = ?", videoId).
+        Exec(ctx)
+    if err != nil {
+        return fmt.Errorf("deleting video qualities from db: %w", err)
+    }
+
+    return nil
+}

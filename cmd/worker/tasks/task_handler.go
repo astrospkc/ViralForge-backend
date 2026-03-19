@@ -31,4 +31,18 @@ func HandleTranscodeVideoTask(ctx context.Context, t*asynq.Task) error {
 
 }
 
+func HandleDeleteVideoTask(ctx context.Context, t*asynq.Task) error{
+	var payload DeleteVideoPayload 
+	if err:= json.Unmarshal(t.Payload() , &payload); err!=nil{
+		return fmt.Errorf("failed to unmarshal payload %w", err)
+	}
+
+	fmt.Println("payload : ", payload)
+	err:= utils.DeleteVideoTask( ctx, payload.VideoUploadID, payload.UserID)
+	if err!=nil{
+		return err
+	}
+	return nil
+}
+
 

@@ -130,3 +130,43 @@ func getContentType(filePath string) string {
         return "application/octet-stream"
     }
 }
+
+
+func DeleteFromS3(s3Key string) (bool, error) {
+	envs := env.NewEnv()
+
+	cfg, err := config.LoadDefaultConfig(context.TODO(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+			envs.AWS_ACCESS_KEY_ID,
+			envs.AWS_SECRET_ACCESS_KEY,
+			"",
+		)),
+	)
+	if err != nil {
+		return false, fmt.Errorf("failed to load aws config: %w", err)
+	}
+
+	s3Client := s3.NewFromConfig(cfg)
+
+	_, err = s3Client.DeleteObject(context.TODO(), &s3.DeleteObjectInput{
+		Bucket: aws.String(envs.S3_BUCKET_NAME),
+		Key:    aws.String(s3Key),
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to delete object from S3: %w", err)
+	}
+
+	// Optional but recommended → ensure deletion is completed
+	_, err = s3Client.HeadObject(context.TODO(), &s3.HeadObjectInput{
+		Bucket: aws.String(envs.S3_BUCKET_NAME),
+		Key:    aws.String(s3Key),
+	})
+
+	if err == nil {
+		return false, fmt.Errorf("file still exists after delete attempt")
+	}
+
+	fmt.Printf("successfully deleted %s from S3\n", s3Key)
+	return true, nil
+}

@@ -154,6 +154,7 @@ func AddVideoDetailsToDB() fiber.Handler{
 			ObjectKey string `json:"objectKey"`
 		}
 
+
 		if err:=c.Bind().Body(&body); err!=nil{
 			return c.Status(fiber.StatusBadRequest).JSON(VideoUploadResponse{
 				Data:models.VideoUpload{},
@@ -162,6 +163,8 @@ func AddVideoDetailsToDB() fiber.Handler{
 				Message: "Failed request body",
 			})
 		}
+
+		fileType:= GetContentType(body.Filename)
 
 		if(body.ObjectKey==""){
 			return c.Status(fiber.StatusBadRequest).JSON(VideoUploadResponse{
@@ -173,17 +176,18 @@ func AddVideoDetailsToDB() fiber.Handler{
 		}
 
 		fmt.Println("body for create video: ", body)
-
+		
 		
 		videoUpload:=&models.VideoUpload{
 			UserID: u_id,
 			
 			FileURL: body.ObjectKey,
-			FileType: body.FileType,
+			FileType: fileType,
+			Tags:[]string{},
 		}
 
 		_, err = connect.Db.NewInsert().Model(videoUpload).Returning("*").Exec(c.Context())
-		
+		fmt.Println("error inserting into db: ", err)
 		if err!=nil{
 			fmt.Println("error while inserting it into db")
 			return c.Status(fiber.StatusBadRequest).JSON(VideoUploadResponse{

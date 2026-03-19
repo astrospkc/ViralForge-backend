@@ -22,8 +22,6 @@ type PublishStatusEnum string
 const (
 	PublishEnum_Draft   PublishStatusEnum="draft"
 	PublishEnum_Published  PublishStatusEnum="published"
-
-
 )
 
 type VideoUpload struct {
@@ -31,16 +29,16 @@ type VideoUpload struct {
 
 	ID		int64		`bun:",pk,autoincrement" json:"id"`
 	UserID    int64     `bun:",notnull" json:"user_id"`
-	Title         string    `bun:",notnull" json:"title"`
-	Description   string    `bun:",notnull" json:"description"`
-	Tags          string  `bun:",notnull" json:"tags"`
+	Title         string    `bun:"," json:"title"`
+	Description   string    `bun:"," json:"description"`
+	Tags         []string  `bun:",array" json:"tags"`
 	FileURL string 		`bun:",notnull" json:"file_url"`
 	FileType string   `bun:",notnull" json:"file_type"`
 	Thumbnails         []string `bun:"thumbnails,type:text[],notnull" json:"thumbnails"`
     SelectedThumbnail  string   `bun:"selected_thumbnail,type:text" json:"selected_thumbnail"`
 	LikesCount    int64     `bun:",notnull" json:"likes_count"`
 	ViewsCount    int64     `bun:",notnull" json:"views_count"`
-	PublishStatus PublishStatusEnum    `bun:",notnull" json:"publish_status"` // draft | published
+	PublishStatus PublishStatusEnum `bun:",notnull,default:'draft'" json:"publish_status"`// draft | published
 	IsDeleted     bool   `bun:"," json:"is_deleted"`
 	TranscodeStatus bool `bun:"," json:"transcode_status"`
 	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`

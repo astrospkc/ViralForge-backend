@@ -168,6 +168,13 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
         return fmt.Errorf("transcoding errors: %s", strings.Join(errs, ", "))
     }
 
+    // ------------------ at the end delete raw video from the s3 --- 
+    _, err= DeleteFromS3(inputKey)
+    if err !=nil{
+        return err
+    }
+    
+
     return nil
 }
 
