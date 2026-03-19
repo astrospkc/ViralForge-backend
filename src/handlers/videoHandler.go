@@ -291,7 +291,8 @@ func GetContentType(filePath string) string {
 
     case ".mp4":
         return "video/mp4"
-
+	case ".mkv":
+        return "video/x-matroska"
     default:
         return "application/octet-stream"
     }
@@ -485,6 +486,22 @@ func UpdateVideoMetadata(data VideoMetaData)error{
 	}
 	fmt.Println("result of updated meta data: ", res)
 	return nil
+}
+
+type DeleteVideoResponse struct{
+	Success bool 
+	Code    int
+	Message string
+}
+
+func DeleteVideo() fiber.Handler{
+	return func(c fiber.Ctx) error{
+		return  c.Status(fiber.StatusAccepted).JSON(DeleteVideoResponse{
+			Success: true,
+			Code:200,
+			Message:"Successfully Deleted the post",
+		})
+	}
 }
 
 
