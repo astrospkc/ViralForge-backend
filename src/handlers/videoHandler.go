@@ -22,6 +22,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 
@@ -428,12 +429,12 @@ type VideoResponse struct{
 }
 
 type VideoMetaData struct {
-	Title       string
-	Description string
-	Tags        []string
-	Thumbnail   string
-	VideoId     int64
-	ObjectKey   string
+	Title       string  `json:"title"`
+	Description string	`json:"description"`
+	Tags        pq.StringArray `json:"tags"`
+	Thumbnail   string	`json:"thumbnail"`
+	VideoId     int64	`json:"video_id"`
+	ObjectKey   string	`json:"object_key"`
 }
 func UpdateVideo() fiber.Handler {
 	return func(c fiber.Ctx) error {
@@ -449,17 +450,20 @@ func UpdateVideo() fiber.Handler {
 		var body VideoMetaData
 
 		if err := c.Bind().Body(&body); err != nil {
+			fmt.Println("failed to get req body: %w", err)
 			return c.Status(fiber.StatusBadRequest).JSON(VideoResponse{
 				Success: false,
 				Code:    400,
 			})
 		}
 		body.VideoId = int64(v_id)
+		
 
 
 		// ✅ Step 1: Update DB (metadata)
 		err = UpdateVideoMetadata(body)
 		if err != nil {
+			fmt.Println("failed updating metadata: %w", err)
 			return c.Status(fiber.StatusInternalServerError).JSON(VideoResponse{
 				Success: false,
 				Code:    500,
@@ -469,6 +473,7 @@ func UpdateVideo() fiber.Handler {
 		// ✅ Step 2: Push async job (NO goroutine needed)
 		err = VideoTranscode(userID, body.ObjectKey, body.VideoId)
 		if err != nil {
+			fmt.Println("failed to transcode : %w", err)
 			return c.Status(fiber.StatusInternalServerError).JSON(VideoResponse{
 				Success: false,
 				Code:    500,
@@ -503,7 +508,7 @@ type DeleteVideoResponse struct{
 func DeleteVideo() fiber.Handler{
 	return func(c fiber.Ctx) error{
 
-		video_id,_:= strconv.Atoi("v_id")
+		video_id,_:= strconv.Atoi(c.Params("v_id"))
 		user_id,_:= FetchUserId(c)
 
 		// all these below operation in queue
@@ -530,18 +535,18 @@ func DeleteVideo() fiber.Handler{
 		}
 
 		// now update the video_upload and vide_quality data - is_deleted : true
-		_ , err = connect.Db.NewUpdate().Model((*models.VideoUpload)(nil)).Set("is_deleted = ?", "true").Where("id = ?", video_id).Exec(c.Context()) 
+		_ , err = connect.Db.NewUpdate().Model((*models.VideoUpload)(nil)).Set("is_deleted = ?", true).Where("id = ?", video_id).Exec(c.Context()) 
 		if err!=nil{
-			return  c.Status(fiber.StatusAccepted).JSON(DeleteVideoResponse{
+			return  c.Status(fiber.StatusInternalServerError).JSON(DeleteVideoResponse{
 				Success: false,
 				Code:400,
 				Message:"Failed to update the video_upload table with delete",
 			})
 		}
 
-		_ , err = connect.Db.NewUpdate().Model((*models.VideoQuality)(nil)).Set("is_deleted = ?", "true").Where("video_upload_id = ?", video_id).Exec(c.Context()) 
+		_ , err = connect.Db.NewUpdate().Model((*models.VideoQuality)(nil)).Set("is_deleted = ?", true).Where("video_upload_id = ?", video_id).Exec(c.Context()) 
 		if err!=nil{
-			return  c.Status(fiber.StatusAccepted).JSON(DeleteVideoResponse{
+			return  c.Status(fiber.StatusInternalServerError).JSON(DeleteVideoResponse{
 				Success: false,
 				Code:400,
 				Message:"Failed to update the video_quality table with delete",

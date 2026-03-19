@@ -38,7 +38,7 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
     if err != nil {
         return fmt.Errorf("failed to check if video exists: %w", err)
     }
-
+    
     var inputFile string
     if exists {
         var video models.VideoUpload
@@ -79,7 +79,7 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
         // ----------------------------------
 
         }
-        return nil
+        
     }
 
     // download from S3
@@ -90,6 +90,12 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
     defer os.Remove(inputFile)
 
     // -----------THUMBNAIL EXTRACTION -------------
+    // if thumbnails are already present , then don't do any of this operations
+
+    // is_exists, err:= connect.Db.NewSelect().Model((*models.VideoQuality)(nil)).Where("video_upload_id = ?", videoUploadId).Exists(context.Background())
+    // if is_exists{
+
+    // }
     duration, err:= GetVideoDuration(inputFile)
     if err!=nil{
         fmt.Println("could not get duration, using default:", err)
@@ -135,6 +141,7 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
 
         // capture loop variable — critical in Go
         q := q
+        
 
         go func() {
             defer wg.Done()
@@ -182,27 +189,45 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
 func transcodeQuality(inputFile string, videoUploadId int64, userId int64, q Quality) error {
     now := time.Now()
     envs:= env.NewEnv()
-
-    // insert processing record
-    details := &models.VideoQuality{
-        VideoID:    videoUploadId,
-        UserID:     userId,
-        Quality:    q.Name,
-        Codec:      "H.264",
-        Bitrate:    q.Bitrate,
-        Resolution: q.Resolution,
-        Status:     "processing",
-        CreatedAt:  now,
+    details := &models.VideoQuality{}
+    // first check here , if the transcoding is done or not , check the status also, if already exists , then no need to insert the data again 
+    is_exists, err:= connect.Db.NewSelect().Model((*models.VideoQuality)(nil)).Where("video_upload_id = ?", videoUploadId).Where("status = ?", "processing").Where("playlist_key = ?", "").Exists(context.Background())
+    if err!=nil{
+        return err
     }
 
-    _, err := connect.Db.NewInsert().
-        Model(details).
-        Returning("*").
-        Exec(context.Background())
-    if err != nil {
-        return fmt.Errorf("failed to insert quality record: %w", err)
+    if !is_exists{
+        // insert processing record
+        details = &models.VideoQuality{
+            VideoID:    videoUploadId,
+            UserID:     userId,
+            Quality:    q.Name,
+            Codec:      "H.264",
+            Bitrate:    q.Bitrate,
+            Resolution: q.Resolution,
+            Status:     "processing",
+            CreatedAt:  now,
+        }
+
+        _, err = connect.Db.NewInsert().
+            Model(details).
+            Returning("*").
+            Exec(context.Background())
+        if err != nil {
+            return fmt.Errorf("failed to insert quality record: %w", err)
+        }
+
+    }else{
+        // var v_details models.VideoQuality
+        err = connect.Db.NewSelect().Model(details).Where("video_upload_id = ?", videoUploadId).Scan(context.Background())
+        if err!=nil{
+            return err
+        }
     }
 
+    fmt.Println("details : ", details)
+    
+    
     // create temp dir
     uid := uuid.New()
     qualityDir := fmt.Sprintf("/tmp/%s/%s", uid, q.Name)
@@ -232,12 +257,17 @@ func transcodeQuality(inputFile string, videoUploadId int64, userId int64, q Qua
         Run()
     if err != nil {
         // update DB — failed
-        connect.Db.NewUpdate().
+        
+        _, updateErr := connect.Db.NewUpdate().
             Model((*models.VideoQuality)(nil)).
             Set("status = ?", "failed").
             Where("id = ?", details.ID).
             Exec(context.Background())
+        if updateErr != nil {
+            return fmt.Errorf("ffmpeg failed: %w, db update failed: %w", err, updateErr)
+        }
         return fmt.Errorf("ffmpeg failed: %w", err)
+
     }
 
     // upload all files to S3
@@ -253,7 +283,10 @@ func transcodeQuality(inputFile string, videoUploadId int64, userId int64, q Qua
         localFile := filepath.Join(qualityDir, f.Name())
 
         // get file size
-        fileInfo, _ := os.Stat(localFile)
+        fileInfo, err := os.Stat(localFile)
+        if err != nil {
+            return fmt.Errorf("failed to stat %s: %w", f.Name(), err)
+        }
         totalSize += fileInfo.Size()
 
         s3Key := fmt.Sprintf("transcoded/%s/%s/%s", uid, q.Name, f.Name())
@@ -263,7 +296,7 @@ func transcodeQuality(inputFile string, videoUploadId int64, userId int64, q Qua
             playlistS3Key = s3Key
         }
 
-        _, err := UploadToS3(localFile, s3Key)
+        _, err = UploadToS3(localFile, s3Key)
         if err != nil {
             return fmt.Errorf("upload failed for %s: %w", f.Name(), err)
         }
@@ -274,7 +307,9 @@ func transcodeQuality(inputFile string, videoUploadId int64, userId int64, q Qua
     // "https://your-bucket.s3.ap-south-1.amazonaws.com"
 
     cdnUrl := fmt.Sprintf("%s/%s", s3Base, playlistS3Key)
-
+    fmt.Println("cdn url generated: ", cdnUrl)
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
     // update DB — completed
     _, err = connect.Db.NewUpdate().
         Model((*models.VideoQuality)(nil)).
@@ -283,7 +318,7 @@ func transcodeQuality(inputFile string, videoUploadId int64, userId int64, q Qua
         Set("file_size_bytes = ?", totalSize).
         Set("cdn_url = ?", cdnUrl).
         Where("id = ?", details.ID).
-        Exec(context.Background())
+        Exec(ctx)
     if err != nil {
         return fmt.Errorf("failed to update DB: %w", err)
     }

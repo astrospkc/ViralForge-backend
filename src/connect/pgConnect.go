@@ -32,7 +32,8 @@ func PgConnect() {
 	// Neon works best with controlled pool sizes
 	sqldb.SetMaxOpenConns(10)
 	sqldb.SetMaxIdleConns(5)
-	sqldb.SetConnMaxLifetime(time.Minute * 5)
+	sqldb.SetConnMaxLifetime(1 * time.Hour)
+	sqldb.SetConnMaxIdleTime(30 * time.Minute)
 
 	// IMPORTANT: verify connection
 	if err := sqldb.PingContext(ctx); err != nil {

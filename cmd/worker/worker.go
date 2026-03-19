@@ -36,6 +36,7 @@ func StartWorkerServer() {
         Concurrency: 5,
         Queues: map[string]int{
             "transcoding": 10,
+            "delete_video":10,
         },
     })
 

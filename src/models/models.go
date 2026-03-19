@@ -3,6 +3,7 @@ package models
 import (
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/uptrace/bun"
 )
 
@@ -31,7 +32,7 @@ type VideoUpload struct {
 	UserID    int64     `bun:",notnull" json:"user_id"`
 	Title         string    `bun:"," json:"title"`
 	Description   string    `bun:"," json:"description"`
-	Tags         []string  `bun:",array" json:"tags"`
+	Tags        pq.StringArray `bun:"tags,array" json:"tags"`   
 	FileURL string 		`bun:",notnull" json:"file_url"`
 	FileType string   `bun:",notnull" json:"file_type"`
 	Thumbnails         []string `bun:"thumbnails,type:text[],notnull" json:"thumbnails"`
