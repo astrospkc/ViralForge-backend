@@ -176,7 +176,7 @@ func AddVideoDetailsToDB() fiber.Handler{
 		}
 
 		fmt.Println("body for create video: ", body)
-		
+
 		
 		videoUpload:=&models.VideoUpload{
 			UserID: u_id,
@@ -498,8 +498,57 @@ type DeleteVideoResponse struct{
 	Message string
 }
 
+
+
 func DeleteVideo() fiber.Handler{
 	return func(c fiber.Ctx) error{
+
+		video_id,_:= strconv.Atoi("v_id")
+		user_id,_:= FetchUserId(c)
+
+		// all these below operation in queue
+		// deleting the date from db and video from the s3  and if transcoded video is present then delete that too
+		// 1. get the video data 
+		// 2. first delete it from the s3 
+		// 3. then get the vide_quality details, get the transcoded key and that too delete it from the s3
+		// 4. now delete the data from the db.
+		task, err:= tasks.DeleteVideoTask(int64(video_id),user_id)
+		if err!=nil{
+			return c.Status(fiber.StatusBadRequest).JSON(DeleteVideoResponse{
+				Success: false,
+				Code:400,
+				Message:"Failed to queue up delete task",
+			})
+		}
+		_, err = connect.AsynqClient.Enqueue(task)
+		if err!=nil{
+			return c.Status(fiber.StatusBadRequest).JSON(DeleteVideoResponse{
+				Success: false,
+				Code:400,
+				Message:"Failed to queue up delete task",
+			})
+		}
+
+		// now update the video_upload and vide_quality data - is_deleted : true
+		_ , err = connect.Db.NewUpdate().Model((*models.VideoUpload)(nil)).Set("is_deleted = ?", "true").Where("id = ?", video_id).Exec(c.Context()) 
+		if err!=nil{
+			return  c.Status(fiber.StatusAccepted).JSON(DeleteVideoResponse{
+				Success: false,
+				Code:400,
+				Message:"Failed to update the video_upload table with delete",
+			})
+		}
+
+		_ , err = connect.Db.NewUpdate().Model((*models.VideoQuality)(nil)).Set("is_deleted = ?", "true").Where("video_upload_id = ?", video_id).Exec(c.Context()) 
+		if err!=nil{
+			return  c.Status(fiber.StatusAccepted).JSON(DeleteVideoResponse{
+				Success: false,
+				Code:400,
+				Message:"Failed to update the video_quality table with delete",
+			})
+		}
+
+		
 		return  c.Status(fiber.StatusAccepted).JSON(DeleteVideoResponse{
 			Success: true,
 			Code:200,

@@ -28,6 +28,7 @@ func NormalRoutes(app *fiber.App){
 	video.Put("/cdnUpdate", handlers.UpdateCDN_Url())
 	// video.Get("/thumbnail_options/:v_id",handlers.VideoTranscode())
 	video.Put("/:v_id", handlers.UpdateVideo())
+	video.Delete("/:v_id", handlers.DeleteVideo())
 	
 
 }
