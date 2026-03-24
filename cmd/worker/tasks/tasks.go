@@ -3,6 +3,7 @@ package tasks
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -29,6 +30,7 @@ type DeleteVideoPayload struct{
 
 
 func NewTranscodeVideoTask(videoUploadId int64, inputKey string, userId int64)(*asynq.Task, error){
+	fmt.Println("video id and object key in new transcode task: ", videoUploadId, inputKey)
 	payload, err := json.Marshal(TranscodeVideoPayload{
 		VideoUploadID: videoUploadId,
 		InputKey: inputKey,

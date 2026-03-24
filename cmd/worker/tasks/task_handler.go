@@ -24,6 +24,7 @@ func HandleTranscodeVideoTask(ctx context.Context, t*asynq.Task) error {
 	fmt.Println("Hello there in handle transcode video task")
 	// call hls transcode 
 	err := utils.HLSTranscodeandThumbnail(payload.VideoUploadID, payload.InputKey, payload.UserId)
+	fmt.Println("error while transcoding and thumbnail: ", err)
 	if err!=nil{
 		return err
 	}
