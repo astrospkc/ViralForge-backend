@@ -535,7 +535,7 @@ func UpdateVideoMetadata(ctx context.Context, data *UpdatedVideoData)error{
 	if data.VideoId == 0 {
 		return fmt.Errorf("video id is required")
 	}
-	res,err := connect.Db.NewUpdate().Model((*models.VideoUpload)(nil)).Where("id = ?", data.VideoId).Set("title = ?", data.Title).Set("description = ?", data.Description).Set("tags = ?", data.Tags).Set("publish_status = ?", data.PublishStatus).Exec(ctx)
+	res,err := connect.Db.NewUpdate().Model((*models.VideoUpload)(nil)).Where("id = ?", data.VideoId).Set("title = ?", data.Title).Set("description = ?", data.Description).Set("tags = ?", data.Tags).Set("publish_status = ?", data.PublishStatus).Set("video_duration = ?", data.VideoDuration).Exec(ctx)
 	if err!=nil{
 		return err
 	}
@@ -623,6 +623,7 @@ type VideoPost struct{
     likes   int64;
     quality string;
     tags  []string
+	cdn_url string;
     reviews []Review
     time  string;
 };
@@ -630,12 +631,13 @@ type VideoPost struct{
 type Review struct{} //comments
 
 type PostedVideoResponse struct{
+	Message string
 	Data []VideoPost 
 	Success bool 
 	Code   int
 }
 
-func GetAllPostedVideos() fiber.Handler{
+func GetAllPostedVideosOfUser() fiber.Handler{
 	return func (c fiber.Ctx) error{
 		userId, err:= FetchUserId(c);
 		if err!=nil{
@@ -665,6 +667,8 @@ func GetAllPostedVideos() fiber.Handler{
 			})
 		}
 
+
+
 		return c.Status(fiber.StatusAccepted).JSON(VideoResponse{
 
 		})
@@ -672,6 +676,27 @@ func GetAllPostedVideos() fiber.Handler{
 
 
 
+	}
+}
+
+
+func GetAllPostVideosOfPlatform() fiber.Handler{
+	return func (c fiber.Ctx) error{
+		
+		var all_posted_videos []models.VideoUpload
+		err:= connect.Db.NewSelect().Model((&all_posted_videos)).Scan(c.Context())
+		if err!=nil{
+			return c.Status(fiber.StatusBadRequest).JSON(PostedVideoResponse{
+				Message: "Failed to fetch video detais",
+				Success: false,
+				Code:400,
+			})
+		} 
+
+
+		return c.Status(fiber.StatusAccepted).JSON(PostedVideoResponse{
+
+		})
 	}
 }
 
