@@ -39,6 +39,7 @@ type VideoUpload struct {
     SelectedThumbnail  string   `bun:"selected_thumbnail,type:text" json:"selected_thumbnail"`
 	LikesCount    int64     `bun:",notnull" json:"likes_count"`
 	ViewsCount    int64     `bun:",notnull" json:"views_count"`
+	Duration      float64   `bun:"," json:"video_duration"`
 	PublishStatus PublishStatusEnum `bun:",notnull,default:'draft'" json:"publish_status"`// draft | published
 	IsDeleted     bool   `bun:"," json:"is_deleted"`
 	TranscodeStatus bool `bun:"," json:"transcode_status"`

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -618,6 +619,7 @@ type VideoPost struct {
     Views       int64           `json:"views"`
     Likes       int64           `json:"likes"`
     Thumbnail   string          `json:"thumbnail"`
+	Duration    float64         `json:"video_duration"`
     Time        string          `json:"time"`
     Qualities   []QualityOption `json:"qualities"`
 }
@@ -645,6 +647,7 @@ type VideoFeedRow struct {
     LikesCount  int64          `bun:"likes_count"`
     Thumbnail   string         `bun:"selected_thumbnail"`
     CreatedAt   time.Time      `bun:"created_at"`
+	Duration    float64        `bun:"video_duration"`
 
     UserID   int64  `bun:"user_id"`
     UserName string `bun:"user_name"`
@@ -665,9 +668,26 @@ func GetAllPostedVideosOfUser() fiber.Handler {
             }) 
 		}
 
+		cursor:=c.Query("cursor")
+		limit := fiber.Query[int](c, "limit", 10)
+
+		var createdAtCursor time.Time 
+		var idCursor int64 
+
+		if cursor!=""{
+			decoded, err:= base64.StdEncoding.DecodeString(cursor)
+			if err ==nil{
+				parts:= strings.Split(string(decoded), "/")
+				if len(parts)==2{
+					createdAtCursor,_ = time.Parse(time.RFC3339, parts[10])
+					idCursor,_ = strconv.ParseInt(parts[1],10,64)
+				}
+			}
+		}
+
         var rows []VideoFeedRow
 
-        err = connect.Db.NewSelect().
+        query := connect.Db.NewSelect().
             TableExpr("video_uploads AS vdu").
             ColumnExpr(`
                 vdu.id, vdu.title, vdu.description, vdu.tags,
@@ -680,9 +700,19 @@ func GetAllPostedVideosOfUser() fiber.Handler {
             Join("LEFT JOIN video_qualities vq ON vq.video_upload_id = vdu.id AND vq.status = ? AND vq.is_deleted = false", "completed").
             Where("vdu.publish_status = ?", "published").
             Where("vdu.is_deleted = false").
-			Where("u.id = ?", user_id).
-            OrderExpr("vdu.created_at DESC").
-            Scan(c.Context(), &rows)
+			Where("u.id = ?", user_id)
+		
+		if cursor!=""{
+			query = query.Where(`
+				(vdu.created_at < ?) OR
+				(vdu.created_at = ? AND vdu.id < ?)
+			`, createdAtCursor, createdAtCursor, idCursor)
+		}
+
+		err = query.
+			OrderExpr("vdu.created_at DESC, vdu.id DESC").
+			Limit(limit + 1). 
+			Scan(c.Context(), &rows)
 
         if err != nil {
             return c.Status(fiber.StatusInternalServerError).JSON(PostedVideoResponse{
@@ -715,6 +745,7 @@ func GetAllPostedVideosOfUser() fiber.Handler {
                     Views:       r.ViewsCount,
                     Likes:       r.LikesCount,
                     Thumbnail:   r.Thumbnail,
+					Duration:	 r.Duration,
                     Time:        r.CreatedAt.Format(time.RFC3339),
                     Qualities:   []QualityOption{},
                 }
@@ -727,16 +758,29 @@ func GetAllPostedVideosOfUser() fiber.Handler {
             }
         }
 
-        result := make([]VideoPost, 0, len(videoOrder))
-        for _, id := range videoOrder {
+        result := []VideoPost{}
+        for i, id := range videoOrder {
+			if i>=limit{
+				break
+			}
             result = append(result, *videoMap[id])
         }
 
-        return c.Status(fiber.StatusOK).JSON(PostedVideoResponse{
-            Message: "Videos fetched successfully",
-            Data:    result,
-            Success: true,
-            Code:    200,
+		hasMore:=len(videoOrder)>limit 
+		var nextCursor string 
+		
+		if hasMore {
+			last := videoMap[videoOrder[limit-1]]
+			cursorStr := fmt.Sprintf("%s|%d",last.Time, last.ID)
+			nextCursor = base64.StdEncoding.EncodeToString([]byte(cursorStr))
+		}
+
+        return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
+            "data":       result,
+            "nextCursor": nextCursor,
+            "hasMore":    hasMore,
+			"Success":    true,
+			"Code":       200,
         })
     }
 }
@@ -746,9 +790,28 @@ func GetAllPostedVideosOfUser() fiber.Handler {
 func GetAllPostVideosOfPlatform() fiber.Handler {
     return func(c fiber.Ctx) error {
 
+		// get query params:
+		cursor := c.Query("cursor") // base64 encoded
+        limit := fiber.Query[int](c,"limit", 10)
+
+		var createdAtCursor time.Time
+        var idCursor int64
+
+		// 2. Decode cursor (if exists)
+        if cursor != "" {
+            decoded, err := base64.StdEncoding.DecodeString(cursor)
+            if err == nil {
+                parts := strings.Split(string(decoded), "|")
+                if len(parts) == 2 {
+                    createdAtCursor, _ = time.Parse(time.RFC3339, parts[0])
+                    idCursor, _ = strconv.ParseInt(parts[1], 10, 64)
+                }
+            }
+        }
+
         var rows []VideoFeedRow
 
-        err := connect.Db.NewSelect().
+        query := connect.Db.NewSelect().
             TableExpr("video_uploads AS vdu").
             ColumnExpr(`
                 vdu.id, vdu.title, vdu.description, vdu.tags,
@@ -760,8 +823,18 @@ func GetAllPostVideosOfPlatform() fiber.Handler {
             Join("JOIN users u ON u.id = vdu.user_id").
             Join("LEFT JOIN video_qualities vq ON vq.video_upload_id = vdu.id AND vq.status = ? AND vq.is_deleted = false", "completed").
             Where("vdu.publish_status = ?", "published").
-            Where("vdu.is_deleted = false").
-            OrderExpr("vdu.created_at DESC").
+            Where("vdu.is_deleted = false") 
+
+		// cursor condition
+		if cursor != "" {
+            query = query.Where(`
+                (vdu.created_at < ?) OR 
+                (vdu.created_at = ? AND vdu.id < ?)
+            `, createdAtCursor, createdAtCursor, idCursor)
+        }
+		err := query.
+            OrderExpr("vdu.created_at DESC, vdu.id DESC").
+            Limit(limit + 1). // +1 to check hasMore
             Scan(c.Context(), &rows)
 
         if err != nil {
@@ -807,16 +880,28 @@ func GetAllPostVideosOfPlatform() fiber.Handler {
             }
         }
 
-        result := make([]VideoPost, 0, len(videoOrder))
-        for _, id := range videoOrder {
+        result := []VideoPost{}
+        for i, id := range videoOrder {
+			if i>=limit{
+				break
+			}
             result = append(result, *videoMap[id])
         }
 
-        return c.Status(fiber.StatusOK).JSON(PostedVideoResponse{
-            Message: "Videos fetched successfully",
-            Data:    result,
-            Success: true,
-            Code:    200,
+		hasMore:=len(videoOrder)>limit
+		var nextCursor string
+        if hasMore {
+            last := videoMap[videoOrder[limit-1]]
+            cursorStr := fmt.Sprintf("%s|%d", last.Time, last.ID)
+            nextCursor = base64.StdEncoding.EncodeToString([]byte(cursorStr))
+        }
+
+        return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
+            "data":       result,
+            "nextCursor": nextCursor,
+            "hasMore":    hasMore,
+			"Success":    true,
+			"Code":       200,
         })
     }
 }

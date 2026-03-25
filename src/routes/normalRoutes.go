@@ -34,10 +34,9 @@ func NormalRoutes(app *fiber.App){
 	videos.Get("/",              handlers.GetListOfVideoFiles())
 	videos.Get("/:v_id",         handlers.GetTranscodedVideoDetails())
 	videos.Get("/:v_id/status",  handlers.GetTranscodedVideoStatus())
-	videos.Get("/:v_id/download",handlers.GetDownloadUrl())
+	videos.Get("/download",		 handlers.GetDownloadUrl())
 	videos.Put("/:v_id",         handlers.UpdateVideo())
 	videos.Put("/:v_id/cdn",     handlers.UpdateCDN_Url())
 	videos.Delete("/:v_id",      handlers.DeleteVideo())
 	
-
 }
