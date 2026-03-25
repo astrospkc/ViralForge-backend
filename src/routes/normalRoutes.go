@@ -17,18 +17,27 @@ func NormalRoutes(app *fiber.App){
 
 
 
-	video:=app.Group("/video/v1", middleware.FetchUser())
-	video.Get("/get_all_videos", handlers.GetListOfVideoFiles())
-	video.Get("/get_download_url", handlers.GetDownloadUrl())
-	video.Post("/get_presigned_url", handlers.GetPresignedUrl())
-	video.Post("/create_video", handlers.CreateVideo())
-	// video.Post("/transcode", handlers.VideoTranscode())
-	video.Get("/details/:v_id", handlers.GetTranscodedVideoDetails())
-	video.Get("/status/:v_id", handlers.GetTranscodedVideoStatus())
-	video.Put("/cdnUpdate", handlers.UpdateCDN_Url())
-	// video.Get("/thumbnail_options/:v_id",handlers.VideoTranscode())
-	video.Put("/:v_id", handlers.UpdateVideo())
-	video.Delete("/:v_id", handlers.DeleteVideo())
+	v1 := app.Group("/v1", middleware.FetchUser())
+
+	// Feed namespace
+	feed := v1.Group("/feed")
+	feed.Get("/",        handlers.GetAllPostVideosOfPlatform())   // GET /v1/feed
+	feed.Get("/mine",    handlers.GetAllPostedVideosOfUser())      // GET /v1/feed/mine
+
+	// Upload namespace  
+	upload := v1.Group("/upload")
+	upload.Post("/initiate", handlers.GetPresignedUrl())           // POST /v1/upload/initiate
+	upload.Post("/commit",   handlers.CreateVideo())               // POST /v1/upload/commit
+
+	// Videos namespace
+	videos := v1.Group("/videos")
+	videos.Get("/",              handlers.GetListOfVideoFiles())
+	videos.Get("/:v_id",         handlers.GetTranscodedVideoDetails())
+	videos.Get("/:v_id/status",  handlers.GetTranscodedVideoStatus())
+	videos.Get("/:v_id/download",handlers.GetDownloadUrl())
+	videos.Put("/:v_id",         handlers.UpdateVideo())
+	videos.Put("/:v_id/cdn",     handlers.UpdateCDN_Url())
+	videos.Delete("/:v_id",      handlers.DeleteVideo())
 	
 
 }

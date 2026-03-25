@@ -608,25 +608,23 @@ func DeleteVideo() fiber.Handler{
 }
 
 
-type VideoPost struct{
-    id 			int64;
-    userId 		int64;
-    userName	string;
-    userAvatar  string;
-    userVerified bool;
-    title      string;
-    description string;
-    category  string;
-    thumbnail  string;
-    duration string;
-    views    int64;
-    likes   int64;
-    quality string;
-    tags  []string
-	cdn_url string;
-    reviews []Review
-    time  string;
-};
+type VideoPost struct {
+    ID          int64           `json:"id"`
+    UserID      int64           `json:"user_id"`
+    UserName    string          `json:"user_name"`
+    Title       string          `json:"title"`
+    Description string          `json:"description"`
+    Tags        []string        `json:"tags"`
+    Views       int64           `json:"views"`
+    Likes       int64           `json:"likes"`
+    Thumbnail   string          `json:"thumbnail"`
+    Time        string          `json:"time"`
+    Qualities   []QualityOption `json:"qualities"`
+}
+type QualityOption struct {
+    CDNUrl  string
+    Quality string
+}
 
 type Review struct{} //comments
 
@@ -637,69 +635,191 @@ type PostedVideoResponse struct{
 	Code   int
 }
 
-func GetAllPostedVideosOfUser() fiber.Handler{
-	return func (c fiber.Ctx) error{
-		userId, err:= FetchUserId(c);
-		if err!=nil{
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"Message":"failed to retrieve user id , log in or signup",
-				"Success":false,
-			})
-		}
 
-		// get the userinfo as well
-		var user_info models.User 
-		err = connect.Db.NewSelect().Model((&user_info)).Where("id = ?", userId).Scan(c.Context());
-		if err!=nil{
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"Message":"Failed to retrieve user info",
-				"Success": false,
-			})
-		}
+type VideoFeedRow struct {
+    ID          int64          `bun:"id"`
+    Title       string         `bun:"title"`
+    Description string         `bun:"description"`
+    Tags        pq.StringArray `bun:"tags"`
+    ViewsCount  int64          `bun:"views_count"`
+    LikesCount  int64          `bun:"likes_count"`
+    Thumbnail   string         `bun:"selected_thumbnail"`
+    CreatedAt   time.Time      `bun:"created_at"`
 
-		// get the the videos of that are published status is "published"
-		var posted_videos models.VideoUpload 
-		err = connect.Db.NewSelect().Model((&posted_videos)).Where("user_id = ?", userId).Where("published_status = ?","published").Scan(c.Context())
-		if err!=nil{
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"Message":"Failed to retrieve videos",
-				"Success": false,
-			})
-		}
+    UserID   int64  `bun:"user_id"`
+    UserName string `bun:"user_name"`
 
-
-
-		return c.Status(fiber.StatusAccepted).JSON(VideoResponse{
-
-		})
-
-
-
-
-	}
+    CDNUrl  string `bun:"cdn_url"`
+    Quality string `bun:"quality"`
 }
 
 
-func GetAllPostVideosOfPlatform() fiber.Handler{
-	return func (c fiber.Ctx) error{
-		
-		var all_posted_videos []models.VideoUpload
-		err:= connect.Db.NewSelect().Model((&all_posted_videos)).Scan(c.Context())
+func GetAllPostedVideosOfUser() fiber.Handler {
+    return func(c fiber.Ctx) error {
+		user_id, err:=FetchUserId(c)
 		if err!=nil{
-			return c.Status(fiber.StatusBadRequest).JSON(PostedVideoResponse{
-				Message: "Failed to fetch video detais",
-				Success: false,
-				Code:400,
-			})
-		} 
+			return c.Status(fiber.StatusInternalServerError).JSON(PostedVideoResponse{
+                Message: "Failed to fetch userid, log in first to see your posted videos",
+                Success: false,
+                Code:    500,
+            }) 
+		}
 
+        var rows []VideoFeedRow
 
-		return c.Status(fiber.StatusAccepted).JSON(PostedVideoResponse{
+        err = connect.Db.NewSelect().
+            TableExpr("video_uploads AS vdu").
+            ColumnExpr(`
+                vdu.id, vdu.title, vdu.description, vdu.tags,
+                vdu.views_count, vdu.likes_count,
+                vdu.selected_thumbnail, vdu.created_at
+            `).
+            ColumnExpr("u.id AS user_id, u.name AS user_name").
+            ColumnExpr("vq.cdn_url, vq.quality").
+            Join("JOIN users u ON u.id = vdu.user_id").
+            Join("LEFT JOIN video_qualities vq ON vq.video_upload_id = vdu.id AND vq.status = ? AND vq.is_deleted = false", "completed").
+            Where("vdu.publish_status = ?", "published").
+            Where("vdu.is_deleted = false").
+			Where("u.id = ?", user_id).
+            OrderExpr("vdu.created_at DESC").
+            Scan(c.Context(), &rows)
 
-		})
-	}
+        if err != nil {
+            return c.Status(fiber.StatusInternalServerError).JSON(PostedVideoResponse{
+                Message: "Failed to fetch video details",
+                Success: false,
+                Code:    500,
+            })
+        }
+
+        // Debug: inspect raw rows
+        // for _, row := range rows {
+        //     b, _ := json.MarshalIndent(row, "", "  ")
+        //     fmt.Println(string(b))
+        // }
+
+        // Group by video ID, preserving order
+        videoMap := make(map[int64]*VideoPost)
+        videoOrder := []int64{}
+
+        for _, r := range rows {
+            if _, exists := videoMap[r.ID]; !exists {
+                videoOrder = append(videoOrder, r.ID)
+                videoMap[r.ID] = &VideoPost{
+                    ID:          r.ID,
+                    UserID:      r.UserID,
+                    UserName:    r.UserName,
+                    Title:       r.Title,
+                    Description: r.Description,
+                    Tags:        r.Tags,
+                    Views:       r.ViewsCount,
+                    Likes:       r.LikesCount,
+                    Thumbnail:   r.Thumbnail,
+                    Time:        r.CreatedAt.Format(time.RFC3339),
+                    Qualities:   []QualityOption{},
+                }
+            }
+            if r.CDNUrl != "" {
+                videoMap[r.ID].Qualities = append(videoMap[r.ID].Qualities, QualityOption{
+                    CDNUrl:  r.CDNUrl,
+                    Quality: r.Quality,
+                })
+            }
+        }
+
+        result := make([]VideoPost, 0, len(videoOrder))
+        for _, id := range videoOrder {
+            result = append(result, *videoMap[id])
+        }
+
+        return c.Status(fiber.StatusOK).JSON(PostedVideoResponse{
+            Message: "Videos fetched successfully",
+            Data:    result,
+            Success: true,
+            Code:    200,
+        })
+    }
 }
 
+
+
+func GetAllPostVideosOfPlatform() fiber.Handler {
+    return func(c fiber.Ctx) error {
+
+        var rows []VideoFeedRow
+
+        err := connect.Db.NewSelect().
+            TableExpr("video_uploads AS vdu").
+            ColumnExpr(`
+                vdu.id, vdu.title, vdu.description, vdu.tags,
+                vdu.views_count, vdu.likes_count,
+                vdu.selected_thumbnail, vdu.created_at
+            `).
+            ColumnExpr("u.id AS user_id, u.name AS user_name").
+            ColumnExpr("vq.cdn_url, vq.quality").
+            Join("JOIN users u ON u.id = vdu.user_id").
+            Join("LEFT JOIN video_qualities vq ON vq.video_upload_id = vdu.id AND vq.status = ? AND vq.is_deleted = false", "completed").
+            Where("vdu.publish_status = ?", "published").
+            Where("vdu.is_deleted = false").
+            OrderExpr("vdu.created_at DESC").
+            Scan(c.Context(), &rows)
+
+        if err != nil {
+            return c.Status(fiber.StatusInternalServerError).JSON(PostedVideoResponse{
+                Message: "Failed to fetch video details",
+                Success: false,
+                Code:    500,
+            })
+        }
+
+        // Debug: inspect raw rows
+        // for _, row := range rows {
+        //     b, _ := json.MarshalIndent(row, "", "  ")
+        //     fmt.Println(string(b))
+        // }
+
+        // Group by video ID, preserving order
+        videoMap := make(map[int64]*VideoPost)
+        videoOrder := []int64{}
+
+        for _, r := range rows {
+            if _, exists := videoMap[r.ID]; !exists {
+                videoOrder = append(videoOrder, r.ID)
+                videoMap[r.ID] = &VideoPost{
+                    ID:          r.ID,
+                    UserID:      r.UserID,
+                    UserName:    r.UserName,
+                    Title:       r.Title,
+                    Description: r.Description,
+                    Tags:        r.Tags,
+                    Views:       r.ViewsCount,
+                    Likes:       r.LikesCount,
+                    Thumbnail:   r.Thumbnail,
+                    Time:        r.CreatedAt.Format(time.RFC3339),
+                    Qualities:   []QualityOption{},
+                }
+            }
+            if r.CDNUrl != "" {
+                videoMap[r.ID].Qualities = append(videoMap[r.ID].Qualities, QualityOption{
+                    CDNUrl:  r.CDNUrl,
+                    Quality: r.Quality,
+                })
+            }
+        }
+
+        result := make([]VideoPost, 0, len(videoOrder))
+        for _, id := range videoOrder {
+            result = append(result, *videoMap[id])
+        }
+
+        return c.Status(fiber.StatusOK).JSON(PostedVideoResponse{
+            Message: "Videos fetched successfully",
+            Data:    result,
+            Success: true,
+            Code:    200,
+        })
+    }
+}
 
 
 
