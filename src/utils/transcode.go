@@ -115,7 +115,7 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
         connect.Db.NewUpdate().
             TableExpr("video_uploads").
             Set("thumbnail_urls = ?", pgdialect.Array(thumbUrls)).
-            Set("selected_thumb = ?", thumbUrls[0]).  // default to first
+            Set("selected_thumbnail = ?", thumbUrls[0]).  // default to first
             Where("id = ?", videoUploadId).
             Exec(context.Background())
     }
@@ -136,6 +136,12 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
     //  collect errors from goroutines
     errChan := make(chan error, len(qualities))
 
+    type qualityResult struct{
+        name string
+        done bool
+    }
+
+    resultChan := make(chan qualityResult, len(qualities))
     for _, q := range qualities {
         wg.Add(1)
 
@@ -154,7 +160,15 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
             if err != nil {
                 fmt.Printf("failed transcoding %s: %v\n", q.Name, err)
                 errChan <- fmt.Errorf("quality %s failed: %w", q.Name, err)
+                resultChan<-qualityResult{
+                    name: q.Name,
+                    done: false,
+                }
                 return
+            }
+            resultChan<-qualityResult{
+                name: q.Name,
+                done: true,
             }
 
         }()
@@ -163,6 +177,17 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
     // wait for all goroutines to finish
     wg.Wait()
     close(errChan)
+    close(resultChan)
+
+    // check if all the qualities are successful
+    allDone := true 
+    for result := range resultChan{
+        if !result.done{
+            allDone = false
+            break
+        }
+    }
+
 
     // collect any errors
     var errs []string
@@ -173,6 +198,16 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
     }
     if len(errs) > 0 {
         return fmt.Errorf("transcoding errors: %s", strings.Join(errs, ", "))
+    }
+
+    // if everything looks fine , then update the db 
+    if allDone{
+        _,dberr:= connect.Db.NewUpdate().Model((*models.VideoUpload)(nil)).Set("transcode_status = ?", true).Where("id = ?", videoUploadId).Exec(context.Background())
+        if dberr!=nil{
+            return dberr
+        }else{
+            fmt.Println("all qualities done, video marked as ready")
+        }
     }
 
     // ------------------ at the end delete raw video from the s3 --- 

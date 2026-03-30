@@ -48,10 +48,10 @@ func GetPresignedUrl() fiber.Handler{
 		aws_access_key:=envs.AWS_ACCESS_KEY_ID
 		aws_secret_key:=envs.AWS_SECRET_ACCESS_KEY 
 		bucketname := envs.S3_BUCKET_NAME 
-		
+		region:=envs.S3_REGION
 
 		cfg, err := config.LoadDefaultConfig(context.TODO(),
-		config.WithRegion("us-east-1"),
+		config.WithRegion(region),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(aws_access_key,aws_secret_key,"")),
 	)
 	if err!=nil{
@@ -186,9 +186,10 @@ func CreateVideo() fiber.Handler{
 			FileURL: body.ObjectKey,
 			FileType: fileType,
 			Tags:[]string{},
+			
 		}
 
-		_, err = connect.Db.NewInsert().Model(videoUpload).Returning("*").Exec(c.Context())
+		_, err = connect.Db.NewInsert().Model(videoUpload).Exec(c.Context())
 		fmt.Println("error inserting into db: ", err)
 		if err!=nil{
 			fmt.Println("error while inserting it into db")
@@ -495,6 +496,10 @@ func UpdateVideo() fiber.Handler {
 			})
 		}
 		
+		if body.PublishStatus == ""{
+			body.PublishStatus = "draft"
+		}
+		
 		video_duration, _:= utils.GetVideoDuration(body.ObjectKey)
 		updatedData := &UpdatedVideoData{
 			Title:          body.Title,
@@ -611,21 +616,22 @@ func DeleteVideo() fiber.Handler{
 
 type VideoPost struct {
     ID          int64           `json:"id"`
-    UserID      int64           `json:"user_id"`
-    UserName    string          `json:"user_name"`
+    UserID      int64           `json:"userId"`
+    UserName    string          `json:"userName"`
     Title       string          `json:"title"`
     Description string          `json:"description"`
     Tags        []string        `json:"tags"`
     Views       int64           `json:"views"`
     Likes       int64           `json:"likes"`
     Thumbnail   string          `json:"thumbnail"`
-	Duration    float64         `json:"video_duration"`
+	Duration    float64         `json:"duration"`
+	Category    string          `json:"category"`
     Time        string          `json:"time"`
     Qualities   []QualityOption `json:"qualities"`
 }
 type QualityOption struct {
-    CDNUrl  string
-    Quality string
+    CDNUrl  string `json:"cdnUrl"`
+    Quality string	`json:"quality"`
 }
 
 type Review struct{} //comments
@@ -638,6 +644,8 @@ type PostedVideoResponse struct{
 }
 
 
+
+
 type VideoFeedRow struct {
     ID          int64          `bun:"id"`
     Title       string         `bun:"title"`
@@ -648,6 +656,8 @@ type VideoFeedRow struct {
     Thumbnail   string         `bun:"selected_thumbnail"`
     CreatedAt   time.Time      `bun:"created_at"`
 	Duration    float64        `bun:"video_duration"`
+	Category    string         `bun:"category"`
+	
 
     UserID   int64  `bun:"user_id"`
     UserName string `bun:"user_name"`
@@ -658,133 +668,148 @@ type VideoFeedRow struct {
 
 
 func GetAllPostedVideosOfUser() fiber.Handler {
-    return func(c fiber.Ctx) error {
-		user_id, err:=FetchUserId(c)
-		if err!=nil{
-			return c.Status(fiber.StatusInternalServerError).JSON(PostedVideoResponse{
-                Message: "Failed to fetch userid, log in first to see your posted videos",
-                Success: false,
-                Code:    500,
-            }) 
+	return func(c fiber.Ctx) error {
+
+		// ✅ Fetch user ID
+		userID, err := FetchUserId(c)
+		if err != nil {
+			return c.Status(fiber.StatusUnauthorized).JSON(PostedVideoResponse{
+				Message: "Login required to view your videos",
+				Success: false,
+				Code:    401,
+			})
 		}
 
-		cursor:=c.Query("cursor")
+		// ✅ Query params
+		cursor := c.Query("cursor")
 		limit := fiber.Query[int](c, "limit", 10)
 
-		var createdAtCursor time.Time 
-		var idCursor int64 
+		var createdAtCursor time.Time
+		var idCursor int64
 
-		if cursor!=""{
-			decoded, err:= base64.StdEncoding.DecodeString(cursor)
-			if err ==nil{
-				parts:= strings.Split(string(decoded), "/")
-				if len(parts)==2{
-					createdAtCursor,_ = time.Parse(time.RFC3339, parts[10])
-					idCursor,_ = strconv.ParseInt(parts[1],10,64)
+		// ✅ Decode cursor safely
+		if cursor != "" {
+			decoded, err := base64.StdEncoding.DecodeString(cursor)
+			if err == nil {
+				parts := strings.Split(string(decoded), "|")
+				if len(parts) == 2 {
+					createdAtCursor, _ = time.Parse(time.RFC3339, parts[0])
+					idCursor, _ = strconv.ParseInt(parts[1], 10, 64)
 				}
 			}
 		}
 
-        var rows []VideoFeedRow
+		var rows []VideoFeedRow
 
-        query := connect.Db.NewSelect().
-            TableExpr("video_uploads AS vdu").
-            ColumnExpr(`
-                vdu.id, vdu.title, vdu.description, vdu.tags,
-                vdu.views_count, vdu.likes_count,
-                vdu.selected_thumbnail, vdu.created_at
-            `).
-            ColumnExpr("u.id AS user_id, u.name AS user_name").
-            ColumnExpr("vq.cdn_url, vq.quality").
-            Join("JOIN users u ON u.id = vdu.user_id").
-            Join("LEFT JOIN video_qualities vq ON vq.video_upload_id = vdu.id AND vq.status = ? AND vq.is_deleted = false", "completed").
-            Where("vdu.publish_status = ?", "published").
-            Where("vdu.is_deleted = false").
-			Where("u.id = ?", user_id)
-		
-		if cursor!=""{
+		// ✅ Clean query
+		query := connect.Db.NewSelect().
+			TableExpr("video_uploads AS vdu").
+			Column(
+				"vdu.id",
+				"vdu.title",
+				"vdu.description",
+				"vdu.tags",
+				"vdu.views_count",
+				"vdu.likes_count",
+				"vdu.selected_thumbnail",
+				"vdu.created_at",
+				"vdu.video_duration",
+				"vdu.category",
+			).
+			ColumnExpr("u.id AS user_id, u.name AS user_name").
+			ColumnExpr("vq.cdn_url, vq.quality").
+			Join("JOIN users u ON u.id = vdu.user_id").
+			Join("LEFT JOIN video_qualities vq ON vq.video_upload_id = vdu.id AND vq.status = ? AND vq.is_deleted = false", "completed").
+			Where("vdu.publish_status = ?", "published").
+			Where("vdu.is_deleted = false").
+			Where("u.id = ?", userID)
+
+		// ✅ Cursor pagination condition
+		if cursor != "" {
 			query = query.Where(`
 				(vdu.created_at < ?) OR
 				(vdu.created_at = ? AND vdu.id < ?)
 			`, createdAtCursor, createdAtCursor, idCursor)
 		}
 
+		// ✅ Execute query
 		err = query.
 			OrderExpr("vdu.created_at DESC, vdu.id DESC").
-			Limit(limit + 1). 
+			Limit(limit + 1).
 			Scan(c.Context(), &rows)
 
-        if err != nil {
-            return c.Status(fiber.StatusInternalServerError).JSON(PostedVideoResponse{
-                Message: "Failed to fetch video details",
-                Success: false,
-                Code:    500,
-            })
-        }
+		if err != nil {
+			fmt.Println("DB error:", err)
+			return c.Status(fiber.StatusInternalServerError).JSON(PostedVideoResponse{
+				Message: "Failed to fetch video details",
+				Success: false,
+				Code:    500,
+			})
+		}
 
-        // Debug: inspect raw rows
-        // for _, row := range rows {
-        //     b, _ := json.MarshalIndent(row, "", "  ")
-        //     fmt.Println(string(b))
-        // }
+		// ✅ Group results
+		videoMap := make(map[int64]*VideoPost)
+		videoOrder := []int64{}
 
-        // Group by video ID, preserving order
-        videoMap := make(map[int64]*VideoPost)
-        videoOrder := []int64{}
+		for _, r := range rows {
+			if _, exists := videoMap[r.ID]; !exists {
+				videoOrder = append(videoOrder, r.ID)
 
-        for _, r := range rows {
-            if _, exists := videoMap[r.ID]; !exists {
-                videoOrder = append(videoOrder, r.ID)
-                videoMap[r.ID] = &VideoPost{
-                    ID:          r.ID,
-                    UserID:      r.UserID,
-                    UserName:    r.UserName,
-                    Title:       r.Title,
-                    Description: r.Description,
-                    Tags:        r.Tags,
-                    Views:       r.ViewsCount,
-                    Likes:       r.LikesCount,
-                    Thumbnail:   r.Thumbnail,
-					Duration:	 r.Duration,
-                    Time:        r.CreatedAt.Format(time.RFC3339),
-                    Qualities:   []QualityOption{},
-                }
-            }
-            if r.CDNUrl != "" {
-                videoMap[r.ID].Qualities = append(videoMap[r.ID].Qualities, QualityOption{
-                    CDNUrl:  r.CDNUrl,
-                    Quality: r.Quality,
-                })
-            }
-        }
+				videoMap[r.ID] = &VideoPost{
+					ID:          r.ID,
+					UserID:      r.UserID,
+					UserName:    r.UserName,
+					Title:       r.Title,
+					Description: r.Description,
+					Tags:        r.Tags,
+					Views:       r.ViewsCount,
+					Likes:       r.LikesCount,
+					Thumbnail:   r.Thumbnail,
+					Duration:    r.Duration,
+					Category:    r.Category,
+					Time:        r.CreatedAt.Format(time.RFC3339),
+					Qualities:   []QualityOption{},
+				}
+			}
 
-        result := []VideoPost{}
-        for i, id := range videoOrder {
-			if i>=limit{
+			// ✅ Append qualities
+			if r.CDNUrl != "" {
+				videoMap[r.ID].Qualities = append(videoMap[r.ID].Qualities, QualityOption{
+					CDNUrl:  r.CDNUrl,
+					Quality: r.Quality,
+				})
+			}
+		}
+
+		// ✅ Prepare response list
+		result := []VideoPost{}
+		for i, id := range videoOrder {
+			if i >= limit {
 				break
 			}
-            result = append(result, *videoMap[id])
-        }
+			result = append(result, *videoMap[id])
+		}
 
-		hasMore:=len(videoOrder)>limit 
-		var nextCursor string 
-		
+		// ✅ Pagination metadata
+		hasMore := len(videoOrder) > limit
+		var nextCursor string
+
 		if hasMore {
 			last := videoMap[videoOrder[limit-1]]
-			cursorStr := fmt.Sprintf("%s|%d",last.Time, last.ID)
+			cursorStr := fmt.Sprintf("%s|%d", last.Time, last.ID)
 			nextCursor = base64.StdEncoding.EncodeToString([]byte(cursorStr))
 		}
 
-        return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
-            "data":       result,
-            "nextCursor": nextCursor,
-            "hasMore":    hasMore,
+		// ✅ Final response
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+			"Data":       result,
+			"NextCursor": nextCursor,
+			"HasMore":    hasMore,
 			"Success":    true,
 			"Code":       200,
-        })
-    }
+		})
+	}
 }
-
 
 
 func GetAllPostVideosOfPlatform() fiber.Handler {
@@ -812,18 +837,26 @@ func GetAllPostVideosOfPlatform() fiber.Handler {
         var rows []VideoFeedRow
 
         query := connect.Db.NewSelect().
-            TableExpr("video_uploads AS vdu").
-            ColumnExpr(`
-                vdu.id, vdu.title, vdu.description, vdu.tags,
-                vdu.views_count, vdu.likes_count,
-                vdu.selected_thumbnail, vdu.created_at
-            `).
-            ColumnExpr("u.id AS user_id, u.name AS user_name").
-            ColumnExpr("vq.cdn_url, vq.quality").
-            Join("JOIN users u ON u.id = vdu.user_id").
-            Join("LEFT JOIN video_qualities vq ON vq.video_upload_id = vdu.id AND vq.status = ? AND vq.is_deleted = false", "completed").
-            Where("vdu.publish_status = ?", "published").
-            Where("vdu.is_deleted = false") 
+			TableExpr("video_uploads AS vdu").
+			Column(
+				"vdu.id",
+				"vdu.title",
+				"vdu.description",
+				"vdu.tags",
+				"vdu.views_count",
+				"vdu.likes_count",
+				"vdu.selected_thumbnail",
+				"vdu.created_at",
+				"vdu.video_duration",
+				"vdu.category",
+			).
+			ColumnExpr("u.id AS user_id, u.name AS user_name").
+			ColumnExpr("vq.cdn_url, vq.quality").
+			Join("JOIN users u ON u.id = vdu.user_id").
+			Join("LEFT JOIN video_qualities vq ON vq.video_upload_id = vdu.id AND vq.status = ? AND vq.is_deleted = false", "completed").
+			Where("vdu.publish_status = ?", "published").
+			Where("vdu.is_deleted = false")
+			
 
 		// cursor condition
 		if cursor != "" {
@@ -868,6 +901,7 @@ func GetAllPostVideosOfPlatform() fiber.Handler {
                     Views:       r.ViewsCount,
                     Likes:       r.LikesCount,
                     Thumbnail:   r.Thumbnail,
+					Category:    r.Category,
                     Time:        r.CreatedAt.Format(time.RFC3339),
                     Qualities:   []QualityOption{},
                 }

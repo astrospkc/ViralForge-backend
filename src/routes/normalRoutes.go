@@ -18,6 +18,8 @@ func NormalRoutes(app *fiber.App){
 
 
 	v1 := app.Group("/v1", middleware.FetchUser())
+	// v1.Get("/presigned_url", handlers.GetPresignedUrl())
+
 
 	// Feed namespace
 	feed := v1.Group("/feed")

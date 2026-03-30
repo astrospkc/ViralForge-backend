@@ -23,9 +23,10 @@ import (
 func DownloadFromS3( objectKey string) (string, error){
 	envs:=env.NewEnv()
 	fmt.Println("envs:")
+    region:= envs.S3_REGION
 
 	cfg, err := config.LoadDefaultConfig(context.TODO(),
-            config.WithRegion("us-east-1"),
+            config.WithRegion(region),
             config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
                 envs.AWS_ACCESS_KEY_ID,
                 envs.AWS_SECRET_ACCESS_KEY,
@@ -59,9 +60,9 @@ func DownloadFromS3( objectKey string) (string, error){
 
 func UploadToS3(localFilePath string, s3Key string)(bool, error) {
     envs := env.NewEnv()
-
+    region:=envs.S3_REGION
     cfg, err := config.LoadDefaultConfig(context.TODO(),
-        config.WithRegion("us-east-1"),
+        config.WithRegion(region),
         config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
             envs.AWS_ACCESS_KEY_ID,
             envs.AWS_SECRET_ACCESS_KEY,
@@ -134,9 +135,10 @@ func getContentType(filePath string) string {
 
 func DeleteFromS3(s3Key string) (bool, error) {
 	envs := env.NewEnv()
+    region:=envs.S3_REGION
 
 	cfg, err := config.LoadDefaultConfig(context.TODO(),
-		config.WithRegion("us-east-1"),
+		config.WithRegion(region),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
 			envs.AWS_ACCESS_KEY_ID,
 			envs.AWS_SECRET_ACCESS_KEY,
