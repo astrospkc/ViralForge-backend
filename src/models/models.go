@@ -136,6 +136,36 @@ type CreatorSystem struct{
 
 
 
+type CommentStatus string
+
+const (
+	CommentVisible       CommentStatus = "VISIBLE"
+	CommentPendingReview CommentStatus = "PENDING_REVIEW"
+	CommentHidden        CommentStatus = "HIDDEN"
+	CommentDeleted       CommentStatus = "DELETED"
+)
+type Comment struct {
+	bun.BaseModel `bun:"table:comments,alias:c"`
+
+	ID              uuid.UUID  `bun:"id,pk,type:uuid,default:gen_random_uuid()" json:"id"`
+	VideoID         uuid.UUID  `bun:"video_id,type:uuid,notnull" json:"video_id"`
+	UserID          uuid.UUID  `bun:"user_id,type:uuid,notnull" json:"user_id"`
+	ParentCommentID *uuid.UUID `bun:"parent_comment_id,type:uuid,nullzero" json:"parent_comment_id,omitempty"`
+	RootCommentID   uuid.UUID  `bun:"root_comment_id,type:uuid,notnull" json:"root_comment_id"`
+
+	Depth      int    `bun:"depth,notnull,default:0" json:"depth"`
+	Content    string `bun:"content,type:text,notnull" json:"content"`
+	LikeCount  int64  `bun:"like_count,notnull,default:0" json:"like_count"`
+	ReplyCount int64  `bun:"reply_count,notnull,default:0" json:"reply_count"`
+
+	Status CommentStatus `bun:"status,type:varchar(20),notnull,default:'VISIBLE'" json:"status"`
+
+	CreatedAt time.Time  `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt time.Time  `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
+	DeletedAt *time.Time `bun:"deleted_at,soft_delete,nullzero" json:"deleted_at,omitempty"`
+}
+
+
 
 
 
