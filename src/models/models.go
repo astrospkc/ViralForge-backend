@@ -29,12 +29,12 @@ type VideoUpload struct {
 	bun.BaseModel `bun:"table:video_uploads,alias:vdu"`
 
 	ID		int64		`bun:",pk,autoincrement" json:"id"`
-	UserID    int64     `bun:",notnull" json:"user_id"`
-	Title         string    `bun:"," json:"title"`
-	Description   string    `bun:"," json:"description"`
+	UserID    int64     `bun:"user_id,notnull" json:"user_id"`
+	Title         string    `bun:"title" json:"title"`
+	Description   string    `bun:"description" json:"description"`
 	Tags        pq.StringArray `bun:"tags,array" json:"tags"`   
-	FileURL string 		`bun:",notnull" json:"file_url"`
-	FileType string   `bun:",notnull" json:"file_type"`
+	FileURL string 		`bun:"file_url,notnull" json:"file_url"`
+	FileType string   `bun:"file_type,notnull" json:"file_type"`
 	Thumbnails         []string `bun:"thumbnails,type:text[],notnull" json:"thumbnails"`
     SelectedThumbnail  string   `bun:"selected_thumbnail,type:text" json:"selected_thumbnail"`
 	LikesCount    int64     `bun:",notnull" json:"likes_count"`
@@ -134,6 +134,36 @@ type CreatorSystem struct{
 	IsDeleted    bool    `bun:"," json:"is_deleted"`
 }
 
+
+
+type CommentStatus string
+
+const (
+	CommentVisible       CommentStatus = "VISIBLE"
+	CommentPendingReview CommentStatus = "PENDING_REVIEW"
+	CommentHidden        CommentStatus = "HIDDEN"
+	CommentDeleted       CommentStatus = "DELETED"
+)
+type Comment struct {
+	bun.BaseModel `bun:"table:comments,alias:c"`
+
+	ID              uuid.UUID  `bun:"id,pk,type:uuid,default:gen_random_uuid()" json:"id"`
+	VideoID         uuid.UUID  `bun:"video_id,type:uuid,notnull" json:"video_id"`
+	UserID          uuid.UUID  `bun:"user_id,type:uuid,notnull" json:"user_id"`
+	ParentCommentID *uuid.UUID `bun:"parent_comment_id,type:uuid,nullzero" json:"parent_comment_id,omitempty"`
+	RootCommentID   uuid.UUID  `bun:"root_comment_id,type:uuid,notnull" json:"root_comment_id"`
+
+	Depth      int    `bun:"depth,notnull,default:0" json:"depth"`
+	Content    string `bun:"content,type:text,notnull" json:"content"`
+	LikeCount  int64  `bun:"like_count,notnull,default:0" json:"like_count"`
+	ReplyCount int64  `bun:"reply_count,notnull,default:0" json:"reply_count"`
+
+	Status CommentStatus `bun:"status,type:varchar(20),notnull,default:'VISIBLE'" json:"status"`
+
+	CreatedAt time.Time  `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt time.Time  `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
+	DeletedAt *time.Time `bun:"deleted_at,soft_delete,nullzero" json:"deleted_at,omitempty"`
+}
 
 
 

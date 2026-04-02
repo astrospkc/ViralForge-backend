@@ -6,9 +6,6 @@ import (
 )
 
 func FetchUserId(c fiber.Ctx) (int64 , error){
-	
-	
-	
 	userIdInterface:= c.Locals("user")
 
 	// fmt.Println("user interfacce: ", userIdInterface)

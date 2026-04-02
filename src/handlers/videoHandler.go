@@ -236,7 +236,7 @@ func GetListOfVideoFiles() fiber.Handler{
 			Model(&videoFiles).
 			Where("user_id = ?", u_id).
 			Scan(c.Context())
-
+		
 		
 		if err!=nil{
 			return c.Status(fiber.StatusBadRequest).JSON(GetListOfVideoFilesResponse{
@@ -720,7 +720,6 @@ func GetAllPostedVideosOfUser() fiber.Handler {
 			ColumnExpr("vq.cdn_url, vq.quality").
 			Join("JOIN users u ON u.id = vdu.user_id").
 			Join("LEFT JOIN video_qualities vq ON vq.video_upload_id = vdu.id AND vq.status = ? AND vq.is_deleted = false", "completed").
-			Where("vdu.publish_status = ?", "published").
 			Where("vdu.is_deleted = false").
 			Where("u.id = ?", userID)
 
@@ -869,6 +868,7 @@ func GetAllPostVideosOfPlatform() fiber.Handler {
             OrderExpr("vdu.created_at DESC, vdu.id DESC").
             Limit(limit + 1). // +1 to check hasMore
             Scan(c.Context(), &rows)
+		fmt.Println("rows: ", rows)
 
         if err != nil {
             return c.Status(fiber.StatusInternalServerError).JSON(PostedVideoResponse{
@@ -939,6 +939,8 @@ func GetAllPostVideosOfPlatform() fiber.Handler {
         })
     }
 }
+
+
 
 
 
