@@ -29,12 +29,12 @@ type VideoUpload struct {
 	bun.BaseModel `bun:"table:video_uploads,alias:vdu"`
 
 	ID		int64		`bun:",pk,autoincrement" json:"id"`
-	UserID    int64     `bun:",notnull" json:"user_id"`
-	Title         string    `bun:"," json:"title"`
-	Description   string    `bun:"," json:"description"`
+	UserID    int64     `bun:"user_id,notnull" json:"user_id"`
+	Title         string    `bun:"title" json:"title"`
+	Description   string    `bun:"description" json:"description"`
 	Tags        pq.StringArray `bun:"tags,array" json:"tags"`   
-	FileURL string 		`bun:",notnull" json:"file_url"`
-	FileType string   `bun:",notnull" json:"file_type"`
+	FileURL string 		`bun:"file_url,notnull" json:"file_url"`
+	FileType string   `bun:"file_type,notnull" json:"file_type"`
 	Thumbnails         []string `bun:"thumbnails,type:text[],notnull" json:"thumbnails"`
     SelectedThumbnail  string   `bun:"selected_thumbnail,type:text" json:"selected_thumbnail"`
 	LikesCount    int64     `bun:",notnull" json:"likes_count"`

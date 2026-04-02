@@ -67,6 +67,7 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
         }
         // upload to s3
         thumbUrls,_:=UploadThumbnails(thumbFiles,videoUploadId)
+        fmt.Println("thumb urls: ", thumbUrls)
         // now save to db
         if len(thumbUrls) > 0 {
             connect.Db.NewUpdate().
@@ -360,5 +361,6 @@ func transcodeQuality(inputFile string, videoUploadId int64, userId int64, q Qua
 
     return nil
 }
+
 
 

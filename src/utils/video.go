@@ -20,6 +20,7 @@ func DeleteVideoTask(ctx context.Context, videoId int64, userId int64) error {
     // Only fetch + delete upload record if it exists
     if exists {
         var uploadData models.VideoUpload
+        
         err = connect.Db.NewSelect().
             Model(&uploadData).
             Where("id = ?", videoId).
@@ -32,8 +33,11 @@ func DeleteVideoTask(ctx context.Context, videoId int64, userId int64) error {
             return fmt.Errorf("deleting raw video from S3: %w", err)
         }
 
-        _, err = connect.Db.NewDelete().
+        _,err = connect.Db.NewUpdate().
             Model((*models.VideoUpload)(nil)).
+            Set("is_deleted = ?", true).
+            Set("transcode_status = ?", false).
+            Set("publish_status = ?", models.PublishEnum_Draft).
             Where("id = ?", videoId).
             Exec(ctx)
         if err != nil {
@@ -61,12 +65,13 @@ func DeleteVideoTask(ctx context.Context, videoId int64, userId int64) error {
         }
     }
 
-    _, err = connect.Db.NewDelete().
+    _,err = connect.Db.NewUpdate().
         Model((*models.VideoQuality)(nil)).
+        Set("is_deleted = ?", true).
         Where("video_upload_id = ?", videoId).
         Exec(ctx)
     if err != nil {
-        return fmt.Errorf("deleting video qualities from db: %w", err)
+        return fmt.Errorf("update is_deleted  true in video qualities: %w", err)
     }
 
     return nil
