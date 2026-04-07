@@ -147,11 +147,11 @@ const (
 type Comment struct {
 	bun.BaseModel `bun:"table:comments,alias:c"`
 
-	ID              uuid.UUID  `bun:"id,pk,type:uuid,default:gen_random_uuid()" json:"id"`
-	VideoID         uuid.UUID  `bun:"video_id,type:uuid,notnull" json:"video_id"`
-	UserID          uuid.UUID  `bun:"user_id,type:uuid,notnull" json:"user_id"`
-	ParentCommentID *uuid.UUID `bun:"parent_comment_id,type:uuid,nullzero" json:"parent_comment_id,omitempty"`
-	RootCommentID   uuid.UUID  `bun:"root_comment_id,type:uuid,notnull" json:"root_comment_id"`
+	ID            int64  `bun:",pk,autoincrement" json:"id"`
+	VideoID         int64  `bun:"video_id,type:,notnull" json:"video_id"`
+	UserID          int64  `bun:"user_id,type:uuid,notnull" json:"user_id"`
+	ParentCommentID int64 `bun:"parent_comment_id,type:,nullzero" json:"parent_comment_id,omitempty"`
+	RootCommentID   int64  `bun:"root_comment_id,type:,notnull" json:"root_comment_id"`
 
 	Depth      int    `bun:"depth,notnull,default:0" json:"depth"`
 	Content    string `bun:"content,type:text,notnull" json:"content"`
