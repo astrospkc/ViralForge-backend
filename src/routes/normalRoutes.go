@@ -19,6 +19,8 @@ func NormalRoutes(app *fiber.App){
 
 	v1 := app.Group("/v1", middleware.FetchUser())
 	// v1.Get("/presigned_url", handlers.GetPresignedUrl())
+	//seach 
+	v1.Get("/search", handlers.SearchVideos())
 
 
 	// Feed namespace
@@ -49,5 +51,9 @@ func NormalRoutes(app *fiber.App){
 	comments.Post("/:v_id", handlers.CreateComment())
 	comments.Get("/:comment_id/replies", handlers.GetReplies())
 	comments.Delete("/:comment_id", handlers.DeleteComment())
+	comments.Patch("/:comment_id", handlers.UpdateComment())
+
+	// video search 
+
 	
 }

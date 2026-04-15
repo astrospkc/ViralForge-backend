@@ -41,8 +41,9 @@ type VideoUpload struct {
 	ViewsCount    int64     `bun:",notnull" json:"views_count"`
 	Duration      float64   `bun:"video_duration" json:"video_duration"`
 	Category      string   `bun:",notnull" json:"category"`
-	PublishStatus PublishStatusEnum `bun:",notnull,default:'draft'" json:"publish_status"`// draft | published
+	PublishStatus PublishStatusEnum `bun:"publish_status,notnull,default:'draft'" json:"publish_status"`// draft | published
 	IsDeleted     bool   `bun:"," json:"is_deleted"`
+	SearchVector  string `bun:"search_vector" json:"search_vector"`
 	TranscodeStatus bool `bun:"," json:"transcode_status"`
 	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
     UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
@@ -144,14 +145,18 @@ const (
 	CommentHidden        CommentStatus = "HIDDEN"
 	CommentDeleted       CommentStatus = "DELETED"
 )
+
+
+
+
 type Comment struct {
 	bun.BaseModel `bun:"table:comments,alias:c"`
 
-	ID            int64  `bun:",pk,autoincrement" json:"id"`
-	VideoID         int64  `bun:"video_id,type:,notnull" json:"video_id"`
-	UserID          int64  `bun:"user_id,type:uuid,notnull" json:"user_id"`
-	ParentCommentID int64 `bun:"parent_comment_id,type:,nullzero" json:"parent_comment_id,omitempty"`
-	RootCommentID   int64  `bun:"root_comment_id,type:,notnull" json:"root_comment_id"`
+	ID              int64  `bun:",pk,autoincrement" json:"id"`
+	VideoID         int64  `bun:"video_id,notnull" json:"video_id"`
+	UserID          int64  `bun:"user_id,notnull" json:"user_id"`
+	ParentCommentID *int64 `bun:"parent_comment_id,nullzero" json:"parent_comment_id,omitempty"`
+	RootCommentID   int64  `bun:"root_comment_id,notnull" json:"root_comment_id"`
 
 	Depth      int    `bun:"depth,notnull,default:0" json:"depth"`
 	Content    string `bun:"content,type:text,notnull" json:"content"`
@@ -160,8 +165,8 @@ type Comment struct {
 
 	Status CommentStatus `bun:"status,type:varchar(20),notnull,default:'VISIBLE'" json:"status"`
 
-	CreatedAt time.Time  `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
-	UpdatedAt time.Time  `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
+	CreatedAt time.Time  `bun:"created_at,nullzero,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt time.Time  `bun:"updated_at,nullzero,notnull,default:current_timestamp" json:"updated_at"`
 	DeletedAt *time.Time `bun:"deleted_at,soft_delete,nullzero" json:"deleted_at,omitempty"`
 }
 
