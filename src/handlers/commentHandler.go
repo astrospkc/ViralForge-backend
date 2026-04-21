@@ -131,20 +131,25 @@ func DeleteComment() fiber.Handler{
 }
 
 type GetCommentsResponse struct{
-	Data	models.Comment 
+	Data	[]models.Comment 
 	Success bool 
 	Code    int 
 	Messaage string
 }
+
+// BUT WHEN SENDING COMMENTS ARRAY , WE NEED TO SEND THE COMMENTS AS WELL AS USER INFO: JOIN THE USER AND COMMENTS TABLE TO FETCH THE INFO.
+
 
 func GetComments() fiber.Handler{
 	return func (c fiber.Ctx) error{
 		video_id, _ := strconv.Atoi(c.Params("v_id"))
 		v_id:= int64(video_id)
 
-		var comments models.Comment 
-		err := connect.Db.NewSelect().Model(&comments).Where("video_id = ?", v_id).Scan(c.Context())
+		var comments []models.Comment 
+
+		err := connect.Db.NewSelect().Model(&comments).Relation("User").Where("video_id = ?", v_id).Where("status = ?", models.CommentVisible).Order("created_at ASC").Scan(c.Context())
 		if err!=nil{
+			fmt.Printf("error: ", err)
 			return c.Status(fiber.StatusBadRequest).JSON(GetCommentsResponse{
 				Success:false,
 				Code: 400,
@@ -152,8 +157,8 @@ func GetComments() fiber.Handler{
 			})
 		}
 
-		return c.Status(fiber.StatusBadRequest).JSON(GetCommentsResponse{
-			Data:comments,
+		return c.Status(fiber.StatusOK).JSON(GetCommentsResponse{
+			Data:    comments,
 			Success: true,
 			Code:200,
 			Messaage: "Successfully fetched all the comments",
@@ -165,26 +170,86 @@ func GetComments() fiber.Handler{
 
 
 func GetReplies() fiber.Handler{
-	return func (c fiber.Ctx) error{
-		// get parent comment id , root comment id, 
-		comment_id, _ := strconv.Atoi(c.Params("comment_id"))
+	return func(c fiber.Ctx) error {
+		// get parent comment id
+		comment_id, err := strconv.Atoi(c.Params("comment_id"))
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(GetCommentsResponse{
+				Success:  false,
+				Code:     400,
+				Messaage: "Invalid comment ID",
+			})
+		}
 		c_id := int64(comment_id)
 
-		var replies models.Comment
-		err := connect.Db.NewSelect().Model(&replies).Where("parent_comment_id = ?", c_id).Scan(c.Context())
-		if err!=nil{
-			return c.Status(fiber.StatusBadRequest).JSON(GetCommentsResponse{
-				Success: false,
-				Code:400,
-				Messaage: fmt.Sprintf("Failed to fetch replies: ", err),
+		var replies []models.Comment
+		// Also fetch the user associated with each reply
+		err = connect.Db.NewSelect().
+			Model(&replies).
+			Relation("User").
+			Where("parent_comment_id = ?", c_id).
+			Where("status = ?", models.CommentVisible). // Only get visible comments
+			Order("created_at ASC").                   // Show oldest replies first
+			Scan(c.Context())
+
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(GetCommentsResponse{
+				Success:  false,
+				Code:     500,
+				Messaage: fmt.Sprintf("Failed to fetch replies: %v", err),
 			})
 		}
 
-		return c.Status(fiber.StatusAccepted).JSON(GetCommentsResponse{
-			Data:replies,
-			Success: true,
-			Code:200,
+		return c.Status(fiber.StatusOK).JSON(GetCommentsResponse{
+			Data:     replies,
+			Success:  true,
+			Code:     200,
 			Messaage: "Successfully fetched all replies",
 		})
 	}
 }
+
+// type Reviews struct{
+// 	id  int64;
+//     userId int64;
+//     userName string;
+//     avatar  string;
+//     rating  int16;
+//     comment []string;
+// }
+
+// func GetReviews() fiber.Handler{
+// 	return func(c fiber.Ctx) error{
+// 		var reviews []Reviews 
+// 		video_id, _ := strconv.Atoi(c.Params("v_id"))
+// 		v_id:= int64(video_id)
+		
+
+
+
+// 		var comments []models.Comment
+// 		err := connect.Db.NewSelect().Model(&comments).Where("video_id = ?", v_id).Scan(c.Context())
+// 		if err!=nil{
+// 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+// 				"message":"failed to fetch reviews",
+// 				"code":400,
+// 			})
+// 		}
+// 		// user info:
+// 		var user_info models.User
+// 		err = connect.Db.NewSelect().Model(&user_info).Where("id = ?", user_id).Scan(c.Context())
+// 		if err!=nil{
+// 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+// 				"message":"failed to fetch reviews",
+// 				"code":400,
+// 			})
+// 		}
+
+// 		reviews = append(reviews,)
+		
+
+
+		
+
+// 	}
+// }

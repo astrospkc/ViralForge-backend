@@ -50,9 +50,6 @@ type VideoUpload struct {
 
 }
 
-
-
-
 type VideoQuality struct {
     bun.BaseModel `bun:"table:video_qualities"`
 
@@ -146,9 +143,6 @@ const (
 	CommentDeleted       CommentStatus = "DELETED"
 )
 
-
-
-
 type Comment struct {
 	bun.BaseModel `bun:"table:comments,alias:c"`
 
@@ -168,6 +162,8 @@ type Comment struct {
 	CreatedAt time.Time  `bun:"created_at,nullzero,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time  `bun:"updated_at,nullzero,notnull,default:current_timestamp" json:"updated_at"`
 	DeletedAt *time.Time `bun:"deleted_at,soft_delete,nullzero" json:"deleted_at,omitempty"`
+
+	User *User `bun:"rel:belongs-to,join:user_id=id" json:"user,omitempty"`
 }
 
 

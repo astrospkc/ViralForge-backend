@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -487,16 +489,44 @@ func UpdateVideo() fiber.Handler {
 		fmt.Println("video id: ", body.VideoId, body)
 
 		// 1st check if the video id exist or not , if not terminate the process 
-		video_details,err := connect.Db.NewSelect().Model(&models.VideoUpload{}).Where("id = ?", vID).Exists(c.Context())
-		if err!=nil{
-			return c.Status(fiber.StatusBadRequest).JSON(VideoResponse{
-				Success: false, Code: 400,
+		var video models.VideoUpload
+
+		err = connect.Db.NewSelect().
+		Model(&video).
+		Where("id = ?", vID).
+		Limit(1).
+		Scan(c.Context())
+
+		if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return c.Status(fiber.StatusNotFound).JSON(VideoResponse{
+				Success: false,
+				Code:    404,
+				
 			})
 		}
-		if !video_details {
-			return c.Status(fiber.StatusBadRequest).JSON(VideoResponse{
-				Success: false, Code: 400,
-			})
+
+		return c.Status(fiber.StatusInternalServerError).JSON(VideoResponse{
+			Success: false,
+			Code:    500,
+		
+		})
+		}
+		// get the video details and change the data which need to be changed
+		if body.Title == "" {
+			body.Title = video.Title
+		}
+
+		if body.Description == "" {
+			body.Description = video.Description
+		}
+
+		if body.Thumbnail == "" {
+			body.Thumbnail = video.SelectedThumbnail
+		}
+
+		if body.ObjectKey == "" {
+			body.ObjectKey = video.FileURL
 		}
 		
 		if body.PublishStatus == ""{
@@ -530,6 +560,7 @@ func UpdateVideo() fiber.Handler {
 			})
 		}
 
+
 		// Step 2: Push async transcode job
 		fmt.Println("video id and object key: ", body.VideoId, body.ObjectKey)
 		if err = VideoTranscode(userID, body.ObjectKey, body.VideoId); err != nil {
@@ -552,6 +583,8 @@ func UpdateVideoMetadata(ctx context.Context, data *UpdatedVideoData)error{
 	if data.VideoId == 0 {
 		return fmt.Errorf("video id is required")
 	}
+
+
 	res,err := connect.Db.NewUpdate().Model((*models.VideoUpload)(nil)).Where("id = ?", data.VideoId).Set("title = ?", data.Title).Set("description = ?", data.Description).Set("tags = ?", data.Tags).Set("publish_status = ?", data.PublishStatus).Set("video_duration = ?", data.VideoDuration).Exec(ctx)
 	if err!=nil{
 		return err
@@ -670,8 +703,6 @@ type PostedVideoResponse struct{
 	Success bool 
 	Code   int
 }
-
-
 
 
 type VideoFeedRow struct {
