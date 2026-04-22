@@ -42,7 +42,7 @@ func NormalRoutes(app *fiber.App){
 	videos.Put("/:v_id",         handlers.UpdateVideo())
 	videos.Put("/:v_id/cdn",     handlers.UpdateCDN_Url())
 	videos.Delete("/:v_id",      handlers.DeleteVideo())
-	videos.Get("/:v_id/comments", handlers.GetComments())
+	videos.Get("/:v_id/comments", handlers.GetTopLevelComments())
 
 
 

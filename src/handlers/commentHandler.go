@@ -137,17 +137,19 @@ type GetCommentsResponse struct{
 	Messaage string
 }
 
+
+
 // BUT WHEN SENDING COMMENTS ARRAY , WE NEED TO SEND THE COMMENTS AS WELL AS USER INFO: JOIN THE USER AND COMMENTS TABLE TO FETCH THE INFO.
 
-
-func GetComments() fiber.Handler{
+// this is the top level comments that's been sent to the frontend , where we need video id only and no parent_id 
+func GetTopLevelComments() fiber.Handler{
 	return func (c fiber.Ctx) error{
 		video_id, _ := strconv.Atoi(c.Params("v_id"))
 		v_id:= int64(video_id)
 
 		var comments []models.Comment 
 
-		err := connect.Db.NewSelect().Model(&comments).Relation("User").Where("video_id = ?", v_id).Where("status = ?", models.CommentVisible).Order("created_at ASC").Scan(c.Context())
+		err := connect.Db.NewSelect().Model(&comments).Relation("User").Where("video_id = ?", v_id).Where("parent_comment_id IS NULL").Where("status = ?", models.CommentVisible).Order("created_at ASC").Scan(c.Context())
 		if err!=nil{
 			fmt.Printf("error: ", err)
 			return c.Status(fiber.StatusBadRequest).JSON(GetCommentsResponse{
@@ -172,7 +174,7 @@ func GetComments() fiber.Handler{
 func GetReplies() fiber.Handler{
 	return func(c fiber.Ctx) error {
 		// get parent comment id
-		comment_id, err := strconv.Atoi(c.Params("comment_id"))
+		comment_id, err := strconv.Atoi(c.Params("parent_comment_id"))
 		if err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(GetCommentsResponse{
 				Success:  false,
