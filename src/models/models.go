@@ -13,7 +13,7 @@ type User struct {
     ID        int64     `bun:",pk,autoincrement"`
     Name      string    `bun:",notnull"`
     Email     string    `bun:",unique,notnull"`
-	Password  string    
+	Password  string    `json:"-"`
     CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
     UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
 }
@@ -156,6 +156,7 @@ type Comment struct {
 	Content    string `bun:"content,type:text,notnull" json:"content"`
 	LikeCount  int64  `bun:"like_count,notnull,default:0" json:"like_count"`
 	ReplyCount int64  `bun:"reply_count,notnull,default:0" json:"reply_count"`
+	Rating     int64  `bun:"rating,notnull,default:0" json:"rating"`
 
 	Status CommentStatus `bun:"status,type:varchar(20),notnull,default:'VISIBLE'" json:"status"`
 

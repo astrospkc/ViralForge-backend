@@ -75,6 +75,9 @@ func CreateComment() fiber.Handler {
 			ParentCommentID: req.ParentCommentID,
 			RootCommentID:   rootID, // 0 for root initially
 			Content:         req.Content,
+			Rating:          req.Rating,
+			LikeCount:       req.LikeCount,
+			ReplyCount:      req.ReplyCount,
 			Depth:           depth,
 		}
 
