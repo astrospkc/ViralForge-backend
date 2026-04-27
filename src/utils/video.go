@@ -9,19 +9,13 @@ import (
 
 func DeleteVideoTask(ctx context.Context, videoId int64, userId int64) error {
     
-    exists, err := connect.Db.NewSelect().
-        Model((*models.VideoUpload)(nil)).
-        Where("id = ?", videoId).
-        Exists(ctx)
-    if err != nil {
-        return fmt.Errorf("checking video existence: %w", err)
-    }
+    
 
     // Only fetch + delete upload record if it exists
-    if exists {
+    
         var uploadData models.VideoUpload
         
-        err = connect.Db.NewSelect().
+        err:= connect.Db.NewSelect().
             Model(&uploadData).
             Where("id = ?", videoId).
             Scan(ctx)
@@ -43,7 +37,7 @@ func DeleteVideoTask(ctx context.Context, videoId int64, userId int64) error {
         if err != nil {
             return fmt.Errorf("deleting video upload from db: %w", err)
         }
-    }
+    
 
     // Always attempt quality cleanup (handles orphans too)
     var qualityData []models.VideoQuality
@@ -55,7 +49,7 @@ func DeleteVideoTask(ctx context.Context, videoId int64, userId int64) error {
         return fmt.Errorf("fetching video qualities: %w", err)
     }
 
-    if len(qualityData) == 0 && !exists {
+    if len(qualityData) == 0  {
         return nil // Truly nothing existed
     }
 
