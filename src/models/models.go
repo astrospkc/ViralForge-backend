@@ -149,8 +149,8 @@ type Comment struct {
 	ID              int64  `bun:",pk,autoincrement" json:"id"`
 	VideoID         int64  `bun:"video_id,notnull" json:"video_id"`
 	UserID          int64  `bun:"user_id,notnull" json:"user_id"`
-	ParentCommentID *int64 `bun:"parent_comment_id,nullzero" json:"parent_comment_id,omitempty"`
-	RootCommentID   int64  `bun:"root_comment_id,notnull" json:"root_comment_id"`
+	ParentCommentID *int64 `bun:"parent_comment_id" json:"parent_comment_id,omitempty"`
+	RootCommentID   int64  `bun:"root_comment_id" json:"root_comment_id"`
 
 	Depth      int    `bun:"depth,notnull,default:0" json:"depth"`
 	Content    string `bun:"content,type:text,notnull" json:"content"`

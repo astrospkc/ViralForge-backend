@@ -14,6 +14,7 @@ func FetchUser() fiber.Handler{
 	return func(c fiber.Ctx) error{
 		envs:=env.NewEnv()
 		authHeader := c.Get("Authorization")
+		
 		if authHeader==""||!strings.HasPrefix(authHeader, "Bearer "){
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error": "Authentication token missing or malformed",

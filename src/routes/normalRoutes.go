@@ -49,7 +49,7 @@ func NormalRoutes(app *fiber.App){
 	// comment namespaces
 	comments := videos.Group("/comments")
 	comments.Post("/:v_id", handlers.CreateComment())
-	comments.Get("/:comment_id/replies", handlers.GetReplies())
+	comments.Get("/:parent_comment_id/replies", handlers.GetReplies())
 	comments.Delete("/:comment_id", handlers.DeleteComment())
 	comments.Patch("/:comment_id", handlers.UpdateComment())
 

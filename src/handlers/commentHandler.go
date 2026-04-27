@@ -7,6 +7,7 @@ import (
 	"viralforge/src/models"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/uptrace/bun"
 )
 
 // create 1st comment
@@ -23,47 +24,99 @@ type CreateCommentResponse struct{
 	Message string 
 }
 
-func CreateComment() fiber.Handler{
+func CreateComment() fiber.Handler {
 	return func(c fiber.Ctx) error {
-		user_id ,_ := FetchUserId(c)
+		userID, _ := FetchUserId(c)
 
-		var req_body models.Comment 
-		if err := c.Bind().Body(&req_body); err!=nil{
-			return c.Status(fiber.StatusBadRequest).JSON(CreateCommentResponse{
+		var req models.Comment
+		if err := c.Bind().Body(&req); err != nil {
+			return c.Status(400).JSON(CreateCommentResponse{
 				Success: false,
-				Code:  400,
-				Message: fmt.Sprintf("Error while fetching body : ", err),
+				Code:    400,
+				Message: fmt.Sprintf("Error parsing body: %v", err),
 			})
 		}
 
-		v_id,_:= strconv.Atoi(c.Params("v_id"))
-		video_id := int64(v_id)
+		vID, _ := strconv.Atoi(c.Params("v_id"))
+		videoID := int64(vID)
+
+		var rootID int64
+		var depth int = 0
+
+		// 🧠 CASE 1: ROOT COMMENT
+		if req.ParentCommentID == nil {
+			rootID = 0 // temporary (will update later)
+			depth = 0
+		} else {
+			// 🧠 CASE 2: REPLY
+			parentID := *req.ParentCommentID
+
+			parent := new(models.Comment)
+			err := connect.Db.NewSelect().
+				Model(parent).
+				Where("id = ?", parentID).
+				Scan(c.Context())
+
+			if err != nil {
+				return c.Status(400).JSON(CreateCommentResponse{
+					Success: false,
+					Code:    400,
+					Message: "Parent comment not found",
+				})
+			}
+
+			rootID = parent.RootCommentID
+			depth = parent.Depth + 1
+		}
 
 		comment := &models.Comment{
-			VideoID : video_id,
-			UserID: user_id,
-			ParentCommentID: req_body.ParentCommentID,
-			RootCommentID: req_body.RootCommentID,
-			Content : req_body.Content,
-			LikeCount: 0,
+			VideoID:         videoID,
+			UserID:          userID,
+			ParentCommentID: req.ParentCommentID,
+			RootCommentID:   rootID, // 0 for root initially
+			Content:         req.Content,
+			Depth:           depth,
 		}
 
-		err := connect.Db.NewInsert().Model(comment).Returning("*").Scan(c.Context())
-		if err!=nil{
-			return c.Status(fiber.StatusBadRequest).JSON(CreateCommentResponse{
+		// 🔥 INSERT
+		err := connect.Db.NewInsert().
+			Model(comment).
+			Returning("*").
+			Scan(c.Context())
+
+		if err != nil {
+			return c.Status(400).JSON(CreateCommentResponse{
 				Success: false,
-				Code:  400,
-				Message: fmt.Sprintf("Error while creating comment : ", err),
+				Code:    400,
+				Message: fmt.Sprintf("Insert error: %v", err),
 			})
 		}
 
-		return c.Status(fiber.StatusAccepted).JSON(CreateCommentResponse{
-			Data: *comment,
-			Success: false,
-			Code:  400,
-			Message: fmt.Sprintf("Error while creating comment : ", err),
+		// 🔥 ONLY for root comment → update root_id
+		if req.ParentCommentID == nil {
+			_, err = connect.Db.NewUpdate().
+				Model((*models.Comment)(nil)).
+				Where("id = ?", comment.ID).
+				Set("root_comment_id = ?", comment.ID).
+				Exec(c.Context())
+
+			if err != nil {
+				return c.Status(400).JSON(CreateCommentResponse{
+					Success: false,
+					Code:    400,
+					Message: fmt.Sprintf("Update root error: %v", err),
+				})
+			}
+
+			comment.RootCommentID = comment.ID
+		}
+
+		return c.Status(200).JSON(CreateCommentResponse{
+			Data:    *comment,
+			Success: true,
+			Code:    200,
+			Message: "Comment created successfully",
 		})
-		
 	}
 }
 
@@ -149,7 +202,9 @@ func GetTopLevelComments() fiber.Handler{
 
 		var comments []models.Comment 
 
-		err := connect.Db.NewSelect().Model(&comments).Relation("User").Where("video_id = ?", v_id).Where("parent_comment_id IS NULL").Where("status = ?", models.CommentVisible).Order("created_at ASC").Scan(c.Context())
+		err := connect.Db.NewSelect().Model(&comments).Relation("User", func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Column("id", "name", "email", "created_at", "updated_at")
+		}).Where("video_id = ?", v_id).Where("parent_comment_id IS NULL").Where("status = ?", models.CommentVisible).Order("created_at ASC").Scan(c.Context())
 		if err!=nil{
 			fmt.Printf("error: ", err)
 			return c.Status(fiber.StatusBadRequest).JSON(GetCommentsResponse{
@@ -188,7 +243,9 @@ func GetReplies() fiber.Handler{
 		// Also fetch the user associated with each reply
 		err = connect.Db.NewSelect().
 			Model(&replies).
-			Relation("User").
+			Relation("User", func(q *bun.SelectQuery) *bun.SelectQuery {
+				return q.Column("id", "name", "email", "created_at", "updated_at")
+			}).
 			Where("parent_comment_id = ?", c_id).
 			Where("status = ?", models.CommentVisible). // Only get visible comments
 			Order("created_at ASC").                   // Show oldest replies first
