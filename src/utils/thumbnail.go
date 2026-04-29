@@ -22,7 +22,7 @@ type ThumbnailOptions struct {
 func ExtractThumbnail(inputFile string, opts ThumbnailOptions)(string, error){
 	
 	// directory for thumbnails
-	thumbDir:=fmt.Sprintf("/tmp/thumb-%s", uuid.New().String())
+	thumbDir:="/tmp/thumb-"+ uuid.New().String()
 	os.MkdirAll(thumbDir,os.ModePerm)
 	thumbFile:= filepath.Join(thumbDir, "thumbnail.jpg")
 
@@ -57,7 +57,8 @@ func ExtractThumbnail(inputFile string, opts ThumbnailOptions)(string, error){
 }
 
 func ExtractMultipleThumbnail(inputFile string, count int, videoDuration float64)([]string, error){
-	thumbDir := fmt.Sprintf("/tmp/thumbs-%s", uuid.New().String())
+	thumbDir := "/tmp/thumbs-" + uuid.New().String()
+    
     os.MkdirAll(thumbDir, os.ModePerm)
 
 	interval := videoDuration / float64(count+1)
@@ -135,10 +136,11 @@ func UploadThumbnails(thumbFiles []string, videoUploadId int64) ([]string, error
 
         _,err := UploadToS3(thumbFile, s3Key)
         if err != nil {
+            fmt.Println("error while uploading thumbnail to s3:", err)
             continue
         }
 
-        cdnUrl := fmt.Sprintf("%s/%s", s3Base, s3Key)
+        cdnUrl := s3Base +"/"+ s3Key
         cdnUrls = append(cdnUrls, cdnUrl)
     }
 

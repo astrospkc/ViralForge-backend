@@ -19,9 +19,7 @@ func HandleTranscodeVideoTask(ctx context.Context, t*asynq.Task) error {
 		return fmt.Errorf("failed to unmarshal payload %w", err)
 	}
 
-	fmt.Println("payload : ", payload)
 
-	fmt.Println("Hello there in handle transcode video task")
 	// call hls transcode 
 	err := utils.HLSTranscodeandThumbnail(payload.VideoUploadID, payload.InputKey, payload.UserId)
 	fmt.Println("error while transcoding and thumbnail: ", err)
@@ -38,7 +36,7 @@ func HandleDeleteVideoTask(ctx context.Context, t*asynq.Task) error{
 		return fmt.Errorf("failed to unmarshal payload %w", err)
 	}
 
-	fmt.Println("payload : ", payload)
+	
 	err:= utils.DeleteVideoTask( ctx, payload.VideoUploadID, payload.UserID)
 	if err!=nil{
 		return err

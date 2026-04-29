@@ -42,6 +42,7 @@ type VideoUpload struct {
 	Duration      float64   `bun:"video_duration" json:"video_duration"`
 	Category      string   `bun:",notnull" json:"category"`
 	PublishStatus PublishStatusEnum `bun:"publish_status,notnull,default:'draft'" json:"publish_status"`// draft | published
+	MasterCdnUrl  string   `bun:"master_cdn_url,type:text" json:"master_cdn_url"`
 	IsDeleted     bool   `bun:"," json:"is_deleted"`
 	SearchVector  string `bun:"search_vector" json:"search_vector"`
 	TranscodeStatus bool `bun:"," json:"transcode_status"`
