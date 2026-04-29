@@ -33,7 +33,7 @@ import (
 func GetObjectKey(videoname string) string{
 
 		id := uuid.New().String()
-		return fmt.Sprintf("videos/%s-%s", id, videoname)
+		return "videos/" + id + videoname;
 	
 }
 
@@ -272,7 +272,6 @@ func VideoTranscode(userID int64, objectKey string, videoID int64) error {
 		return err
 	}
 
-	fmt.Println("task: ", task)
 
 	_, err = connect.AsynqClient.Enqueue(task)
 	if err != nil {
@@ -407,7 +406,7 @@ func UpdateCDN_Url() fiber.Handler{
 			playlist_key := q.PlaylistKey 
 			s3Base := envs.S3_BASE_URL
 
-			cdnUrl:= fmt.Sprintf("%s/%s", s3Base, playlist_key)
+			cdnUrl:= s3Base + "/" +playlist_key
 
 			// now update the db
 			_, err:= connect.Db.NewUpdate().Model((*models.VideoQuality)(nil)).Set("cdn_url = ?", cdnUrl).Where("status = ?","completed").Exec(context.Background())
@@ -687,6 +686,7 @@ type VideoPost struct {
     Thumbnail   string          `json:"thumbnail"`
 	Duration    float64         `json:"duration"`
 	Category    string          `json:"category"`
+	MasterCdnUrl string         `json:"masterCdnUrl"`
     Time        string          `json:"time"`
     Qualities   []QualityOption `json:"qualities"`
 }
@@ -713,6 +713,7 @@ type VideoFeedRow struct {
     ViewsCount  int64          `bun:"views_count"`
     LikesCount  int64          `bun:"likes_count"`
     Thumbnail   string         `bun:"selected_thumbnail"`
+	MasterCdnUrl string         `bun:"master_cdn_url"`
     CreatedAt   time.Time      `bun:"created_at"`
 	Duration    float64        `bun:"video_duration"`
 	Category    string         `bun:"category"`
@@ -774,6 +775,7 @@ func GetAllPostedVideosOfUser() fiber.Handler {
 				"vdu.created_at",
 				"vdu.video_duration",
 				"vdu.category",
+				"vdu.master_cdn_url",
 			).
 			ColumnExpr("u.id AS user_id, u.name AS user_name").
 			ColumnExpr("vq.cdn_url, vq.quality").
@@ -825,6 +827,7 @@ func GetAllPostedVideosOfUser() fiber.Handler {
 					Thumbnail:   r.Thumbnail,
 					Duration:    r.Duration,
 					Category:    r.Category,
+					MasterCdnUrl: r.MasterCdnUrl,
 					Time:        r.CreatedAt.Format(time.RFC3339),
 					Qualities:   []QualityOption{},
 				}
@@ -854,7 +857,7 @@ func GetAllPostedVideosOfUser() fiber.Handler {
 
 		if hasMore {
 			last := videoMap[videoOrder[limit-1]]
-			cursorStr := fmt.Sprintf("%s|%d", last.Time, last.ID)
+			cursorStr := last.Time + "|" + strconv.FormatInt(last.ID, 10)
 			nextCursor = base64.StdEncoding.EncodeToString([]byte(cursorStr))
 		}
 
@@ -907,6 +910,7 @@ func GetAllPostVideosOfPlatform() fiber.Handler {
 				"vdu.created_at",
 				"vdu.video_duration",
 				"vdu.category",
+				"vdu.master_cdn_url",
 			).
 			ColumnExpr("u.id AS user_id, u.name AS user_name").
 			ColumnExpr("vq.cdn_url, vq.quality").
@@ -927,9 +931,10 @@ func GetAllPostVideosOfPlatform() fiber.Handler {
             OrderExpr("vdu.created_at DESC, vdu.id DESC").
             Limit(limit + 1). // +1 to check hasMore
             Scan(c.Context(), &rows)
-		fmt.Println("rows: ", rows)
+		
 
         if err != nil {
+			fmt.Print("error while fetching video: ", err)
             return c.Status(fiber.StatusInternalServerError).JSON(PostedVideoResponse{
                 Message: "Failed to fetch video details",
                 Success: false,
@@ -961,6 +966,7 @@ func GetAllPostVideosOfPlatform() fiber.Handler {
                     Likes:       r.LikesCount,
                     Thumbnail:   r.Thumbnail,
 					Category:    r.Category,
+					MasterCdnUrl: r.MasterCdnUrl,
                     Time:        r.CreatedAt.Format(time.RFC3339),
                     Qualities:   []QualityOption{},
                 }
@@ -985,7 +991,7 @@ func GetAllPostVideosOfPlatform() fiber.Handler {
 		var nextCursor string
         if hasMore {
             last := videoMap[videoOrder[limit-1]]
-            cursorStr := fmt.Sprintf("%s|%d", last.Time, last.ID)
+            cursorStr := last.Time + "|" + strconv.FormatInt(last.ID, 10)
             nextCursor = base64.StdEncoding.EncodeToString([]byte(cursorStr))
         }
 

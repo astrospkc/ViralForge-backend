@@ -26,9 +26,11 @@ type Quality struct {
 	Name       string
 	Resolution string
 	Bitrate    string
+    BitrateInt int64
 	AudioRate  string  // ← add this
 }
 func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64) error {
+    envs:=env.NewEnv()
     fmt.Println("video id: ", videoUploadId)
     // check if already exists
     exists, err := connect.Db.NewSelect().
@@ -107,10 +109,10 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
     thumbFiles, err:= ExtractMultipleThumbnail(inputFile, 5, duration)
     if err != nil {
         fmt.Println("thumbnail extraction failed:", err)
-        
     }
     // upload to s3
     thumbUrls,_:=UploadThumbnails(thumbFiles,videoUploadId)
+    fmt.Println("thumbUrls: ", thumbUrls)
     // now save to db
     if len(thumbUrls) > 0 {
         connect.Db.NewUpdate().
@@ -122,11 +124,15 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
     }
     // ----------------------------------
 
-    var qualities = []Quality{
-        {Name: "1080p", Resolution: "1920x1080", Bitrate: "4000k", AudioRate: "192k"},
-        {Name: "720p",  Resolution: "1280x720",  Bitrate: "2500k", AudioRate: "128k"},
-        {Name: "480p",  Resolution: "854x480",   Bitrate: "1000k", AudioRate: "96k"},
+    qualities := []Quality{
+        {Name: "1080p", Resolution: "1920x1080", Bitrate: "4000k", BitrateInt: 4000000, AudioRate: "192k"},
+        {Name: "720p",  Resolution: "1280x720",  Bitrate: "2500k", BitrateInt: 2500000, AudioRate: "128k"},
+        {Name: "480p",  Resolution: "854x480",   Bitrate: "1000k", BitrateInt: 1000000, AudioRate: "96k"},
     }
+
+    uid := uuid.New()
+    tempDir := "/tmp/"+uid.String()
+    os.MkdirAll(tempDir, os.ModePerm)
 
     //  semaphore — max 3 qualities running in parallel
     semaphore := make(chan struct{}, 3)
@@ -157,7 +163,7 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
             semaphore <- struct{}{}
             defer func() { <-semaphore }() // release when done
 
-            err := transcodeQuality(inputFile, videoUploadId, userId, q)
+            err := transcodeQuality(inputFile, videoUploadId, userId, q, tempDir)
             if err != nil {
                 fmt.Printf("failed transcoding %s: %v\n", q.Name, err)
                 errChan <- fmt.Errorf("quality %s failed: %w", q.Name, err)
@@ -189,7 +195,6 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
         }
     }
 
-
     // collect any errors
     var errs []string
     for err := range errChan {
@@ -201,6 +206,26 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
         return fmt.Errorf("transcoding errors: %s", strings.Join(errs, ", "))
     }
 
+
+    masterLocalPath, _ := generateMasterPlaylist(tempDir, qualities)
+    masterS3Key := fmt.Sprintf("transcoded/%s/master.m3u8", filepath.Base(tempDir))
+    _, err = UploadToS3(masterLocalPath, masterS3Key)
+    if err != nil {
+        return err
+    }
+
+    s3Base := envs.S3_BASE_URL
+    cdnMasterUrl := fmt.Sprintf("%s/%s", s3Base, masterS3Key)
+
+    _,dberr:= connect.Db.NewUpdate().Model((*models.VideoUpload)(nil)).Set("master_cdn_url = ?", cdnMasterUrl).Where("id = ?", videoUploadId).Exec(context.Background())
+
+    if dberr!=nil{
+        fmt.Println("error for master cdn url: ",)
+        
+    }else{
+        fmt.Println("all qualities done, video marked as ready")
+    }
+    
     // if everything looks fine , then update the db 
     if allDone{
         _,dberr:= connect.Db.NewUpdate().Model((*models.VideoUpload)(nil)).Set("transcode_status = ?", true).Where("id = ?", videoUploadId).Exec(context.Background())
@@ -216,13 +241,11 @@ func HLSTranscodeandThumbnail(videoUploadId int64, inputKey string, userId int64
     if err !=nil{
         return err
     }
-    
-
     return nil
 }
 
 // separate function for single quality transcoding
-func transcodeQuality(inputFile string, videoUploadId int64, userId int64, q Quality) error {
+func transcodeQuality(inputFile string, videoUploadId int64, userId int64, q Quality, parentTempDir string) error {
     now := time.Now()
     envs:= env.NewEnv()
     details := &models.VideoQuality{}
@@ -260,13 +283,9 @@ func transcodeQuality(inputFile string, videoUploadId int64, userId int64, q Qua
             return err
         }
     }
-
-    fmt.Println("details : ", details)
-    
     
     // create temp dir
-    uid := uuid.New()
-    qualityDir := fmt.Sprintf("/tmp/%s/%s", uid, q.Name)
+    qualityDir := filepath.Join(parentTempDir, q.Name)
     os.MkdirAll(qualityDir, os.ModePerm)
     defer os.RemoveAll(qualityDir) // cleanup after upload
 
@@ -325,7 +344,7 @@ func transcodeQuality(inputFile string, videoUploadId int64, userId int64, q Qua
         }
         totalSize += fileInfo.Size()
 
-        s3Key := fmt.Sprintf("transcoded/%s/%s/%s", uid, q.Name, f.Name())
+        s3Key := fmt.Sprintf("transcoded/%s/%s/%s", filepath.Base(parentTempDir), q.Name, f.Name())
 
         // track playlist key separately
         if strings.HasSuffix(f.Name(), ".m3u8") {
@@ -336,14 +355,12 @@ func transcodeQuality(inputFile string, videoUploadId int64, userId int64, q Qua
         if err != nil {
             return fmt.Errorf("upload failed for %s: %w", f.Name(), err)
         }
-
     }
 
     s3Base := envs.S3_BASE_URL
     // "https://your-bucket.s3.ap-south-1.amazonaws.com"
 
     cdnUrl := fmt.Sprintf("%s/%s", s3Base, playlistS3Key)
-    fmt.Println("cdn url generated: ", cdnUrl)
     ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
     defer cancel()
     // update DB — completed
@@ -361,6 +378,30 @@ func transcodeQuality(inputFile string, videoUploadId int64, userId int64, q Qua
 
     return nil
 }
+
+func generateMasterPlaylist(basePath string, qualities []Quality) (string, error) {
+    masterPath := filepath.Join(basePath, "master.m3u8")
+
+    file, err := os.Create(masterPath)
+    if err != nil {
+        return "", err
+    }
+    defer file.Close()
+
+    file.WriteString("#EXTM3U\n")
+
+    for _, q := range qualities {
+        file.WriteString(fmt.Sprintf(
+            "#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%s\n%s/index.m3u8\n",
+            q.BitrateInt,  
+            q.Resolution,   
+            q.Name,        
+        ))
+    }
+
+    return masterPath, nil
+}
+
 
 
 
