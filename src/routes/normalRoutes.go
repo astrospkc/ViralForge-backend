@@ -14,27 +14,29 @@ func NormalRoutes(app *fiber.App){
 	auth.Get("/", middleware.FetchUser(), handlers.GetUserFromId())
 	auth.Post("/register",handlers.RegisterUser())
 	auth.Post("/login", handlers.LoginUser())
+	auth.Post("/reset_code", handlers.SendCode())
+	// auth.Post("/reset_password", handlers.ResetPassword())
 
 
 
-	v1 := app.Group("/v1", middleware.FetchUser())
+	v1 := app.Group("/v1")
 	// v1.Get("/presigned_url", handlers.GetPresignedUrl())
 	//seach 
-	v1.Get("/search", handlers.SearchVideos())
+	v1.Get("/search",middleware.FetchUser(), handlers.SearchVideos())
 
 
 	// Feed namespace
 	feed := v1.Group("/feed")
 	feed.Get("/",        handlers.GetAllPostVideosOfPlatform())   // GET /v1/feed
-	feed.Get("/mine",    handlers.GetAllPostedVideosOfUser())      // GET /v1/feed/mine
+	feed.Get("/mine",middleware.FetchUser(), handlers.GetAllPostedVideosOfUser())      // GET /v1/feed/mine
 
 	// Upload namespace  
-	upload := v1.Group("/upload")
+	upload := v1.Group("/upload",middleware.FetchUser())
 	upload.Post("/initiate", handlers.GetPresignedUrl())           // POST /v1/upload/initiate
 	upload.Post("/commit",   handlers.CreateVideo())               // POST /v1/upload/commit
 
 	// Videos namespace
-	videos := v1.Group("/videos")
+	videos := v1.Group("/videos",middleware.FetchUser())
 	videos.Get("/",              handlers.GetListOfVideoFiles())
 	videos.Get("/:v_id",         handlers.GetTranscodedVideoDetails())
 	videos.Get("/:v_id/status",  handlers.GetTranscodedVideoStatus())

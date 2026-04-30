@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"math/rand"
 	"time"
 	"viralforge/src/connect"
 	"viralforge/src/env"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/resend/resend-go/v3"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -150,8 +152,6 @@ func RegisterUser() fiber.Handler{
 	}
 }
 
-
-
 func LoginUser() fiber.Handler{
 	return func(c fiber.Ctx) error{
 		
@@ -245,5 +245,81 @@ func GetUserFromId() fiber.Handler{
 			Code: 200,
 		})
 
+	}
+}
+
+// for forget password :
+func SendCode() fiber.Handler {
+	return func(c fiber.Ctx) error {
+		envs := env.NewEnv()
+
+		var body struct {
+			Email string `json:"email"`
+		}
+
+		// 1. Parse request
+		if err := c.Bind().Body(&body); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"message": "Invalid request body",
+			})
+		}
+
+		// 2. Check user exists
+		var user models.User
+		err := connect.Db.NewSelect().
+			Model(&user).
+			Where("email = ?", body.Email).
+			Scan(c.Context())
+
+		if err != nil {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"message": "User with this email not found",
+			})
+		}
+
+		// 3. Generate 6-digit OTP
+		otp := fmt.Sprintf("%06d", rand.Intn(1000000))
+
+		// 4. Store OTP in DB (or Redis preferred)
+		// Example: add fields in User or separate table
+		_, err = connect.Db.NewUpdate().
+			Model(&user).
+			Set("otp = ?", otp).
+			Set("otp_expiry = ?", time.Now().Add(10*time.Minute)).
+			Where("id = ?", user.ID).
+			Exec(c.Context())
+
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"message": "Failed to store OTP",
+			})
+		}
+
+		// 5. Send email via Resend
+		client := resend.NewClient(envs.RESEND_API_KEY)
+
+		params := &resend.SendEmailRequest{
+			From:    "ViralForge <noreply@viralforge.xastros.site>",
+			To:      []string{body.Email},
+			Subject: "Your OTP Code - ViralForge",
+			Html: fmt.Sprintf(`
+				<h2>Your OTP Code</h2>
+				<p>Your verification code is:</p>
+				<h1>%s</h1>
+				<p>This code will expire in 10 minutes.</p>
+			`, otp),
+		}
+
+		_, err = client.Emails.Send(params)
+		if err != nil {
+			fmt.Println(err.Error())
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"message": "Failed to send email",
+			})
+		}
+
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+			"message": "OTP sent successfully",
+		})
 	}
 }

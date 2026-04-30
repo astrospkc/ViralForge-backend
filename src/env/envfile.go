@@ -21,6 +21,7 @@ type ENV struct {
 	AIVEN_HOST					string `mapstructure:"AIVEN_HOST"`
 	AIVEN_PASSWORD 				string `mapstructure:"AIVEN_PASSWORD"`
 	S3_REGION					string `mapstructure:"S3_REGION"`
+	RESEND_API_KEY				string `mapstructure:"RESEND_API_KEY"`
 }
 
 func NewEnv() *ENV{

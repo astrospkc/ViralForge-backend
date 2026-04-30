@@ -14,6 +14,11 @@ type User struct {
     Name      string    `bun:",notnull"`
     Email     string    `bun:",unique,notnull"`
 	Password  string    `json:"-"`
+	ConfirmPassword string `bun:"-" json:"-"`
+	IsVerified bool `bun:"is_verified,default:false" json:"is_verified"`
+	Avatar     string   `bun:"avatar,type:text" json:"avatar"`
+	OTP       string    `bun:"otp" json:"otp"`
+	OTPExpiry time.Time `bun:"otp_expiry" json:"otp_expiry"`
     CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
     UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
 }
