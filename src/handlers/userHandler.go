@@ -323,3 +323,136 @@ func SendCode() fiber.Handler {
 		})
 	}
 }
+
+func VerifyOTP() fiber.Handler {
+	return func(c fiber.Ctx) error {
+		var body struct {
+			Email string `json:"email"`
+			OTP   string `json:"otp"`
+		}
+
+		if err := c.Bind().Body(&body); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"message": "Invalid request body",
+			})
+		}
+
+		var user models.User
+		err := connect.Db.NewSelect().
+			Model(&user).
+			Where("email = ?", body.Email).
+			Scan(c.Context())
+
+		if err != nil {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"message": "User not found",
+			})
+		}
+
+		// Check OTP match
+		if user.OTP != body.OTP {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"message": "Invalid OTP",
+			})
+		}
+
+		// Check expiry
+		if time.Now().After(user.OTPExpiry) {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"message": "OTP expired",
+			})
+		}
+
+		// Mark OTP verified (important step)
+		_, err = connect.Db.NewUpdate().
+			Model(&user).
+			Set("is_verified = ?", true).
+			Where("id = ?", user.ID).
+			Exec(c.Context())
+
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"message": "Failed to verify OTP",
+			})
+		}
+
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+			"message": "OTP verified successfully",
+		})
+	}
+}
+
+// new password and confirm password from the frontend , and matches these two , if true, take the new password and update the password of the email id.
+
+func ResetPassword() fiber.Handler {
+	return func(c fiber.Ctx) error {
+		var body struct {
+			Email           string `json:"email"`
+			NewPassword     string `json:"new_password"`
+			ConfirmPassword string `json:"confirm_password"`
+		}
+
+		if err := c.Bind().Body(&body); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"message": "Invalid request body",
+			})
+		}
+
+		// Validate passwords match
+		if body.NewPassword != body.ConfirmPassword {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"message": "Passwords do not match",
+			})
+		}
+
+		var user models.User
+		err := connect.Db.NewSelect().
+			Model(&user).
+			Where("email = ?", body.Email).
+			Scan(c.Context())
+
+		if err != nil {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"message": "User not found",
+			})
+		}
+
+		// Ensure OTP was verified
+		if !user.IsVerified {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"message": "OTP not verified",
+			})
+		}
+
+		// Hash password
+		hashedPassword, err := bcrypt.GenerateFromPassword(
+			[]byte(body.NewPassword),
+			bcrypt.DefaultCost,
+		)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"message": "Failed to hash password",
+			})
+		}
+
+		// Update password + clear OTP fields
+		_, err = connect.Db.NewUpdate().
+			Model(&user).
+			Set("password = ?", string(hashedPassword)).
+			Set("otp = NULL").
+			Set("otp_expiry = NULL").
+			Set("is_verified = ?", false).
+			Where("id = ?", user.ID).
+			Exec(c.Context())
+
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"message": "Failed to update password",
+			})
+		}
+
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+			"message": "Password reset successful",
+		})
+	}
+}

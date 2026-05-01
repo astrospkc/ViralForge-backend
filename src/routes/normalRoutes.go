@@ -15,6 +15,9 @@ func NormalRoutes(app *fiber.App){
 	auth.Post("/register",handlers.RegisterUser())
 	auth.Post("/login", handlers.LoginUser())
 	auth.Post("/reset_code", handlers.SendCode())
+	auth.Post("/verify_code", handlers.VerifyOTP()) 
+	auth.Post("/reset_password", handlers.ResetPassword())
+
 	// auth.Post("/reset_password", handlers.ResetPassword())
 
 
