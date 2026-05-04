@@ -248,6 +248,12 @@ func GetUserFromId() fiber.Handler{
 	}
 }
 
+type SendCodeResponse struct{
+	Message string 
+	Success bool
+	
+
+}
 // for forget password :
 func SendCode() fiber.Handler {
 	return func(c fiber.Ctx) error {
@@ -259,9 +265,11 @@ func SendCode() fiber.Handler {
 
 		// 1. Parse request
 		if err := c.Bind().Body(&body); err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"message": "Invalid request body",
-			})
+			return c.Status(fiber.StatusBadRequest).JSON(SendCodeResponse{
+				Message: "Invalid request body",
+				Success: false,
+			},
+			)
 		}
 
 		// 2. Check user exists
@@ -272,9 +280,10 @@ func SendCode() fiber.Handler {
 			Scan(c.Context())
 
 		if err != nil {
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-				"message": "User with this email not found",
-			})
+			return c.Status(fiber.StatusNotFound).JSON(SendCodeResponse{
+				Message: "User with this email not found",
+				Success: false,
+			},)
 		}
 
 		// 3. Generate 6-digit OTP
@@ -290,8 +299,9 @@ func SendCode() fiber.Handler {
 			Exec(c.Context())
 
 		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"message": "Failed to store OTP",
+			return c.Status(fiber.StatusInternalServerError).JSON(SendCodeResponse{
+				Message: "Failed to store OTP",
+				Success: false,
 			})
 		}
 
@@ -313,13 +323,15 @@ func SendCode() fiber.Handler {
 		_, err = client.Emails.Send(params)
 		if err != nil {
 			fmt.Println(err.Error())
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"message": "Failed to send email",
+			return c.Status(fiber.StatusInternalServerError).JSON(SendCodeResponse{
+				Message: "Failed to send email",
+				Success: false,
 			})
 		}
 
-		return c.Status(fiber.StatusOK).JSON(fiber.Map{
-			"message": "OTP sent successfully",
+		return c.Status(fiber.StatusOK).JSON(SendCodeResponse{
+			Message: "OTP sent successfully",
+			Success: true,
 		})
 	}
 }
@@ -332,8 +344,9 @@ func VerifyOTP() fiber.Handler {
 		}
 
 		if err := c.Bind().Body(&body); err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"message": "Invalid request body",
+			return c.Status(fiber.StatusBadRequest).JSON(SendCodeResponse{
+				Message: "Invalid request body",
+				Success: false,
 			})
 		}
 
@@ -344,22 +357,25 @@ func VerifyOTP() fiber.Handler {
 			Scan(c.Context())
 
 		if err != nil {
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-				"message": "User not found",
+			return c.Status(fiber.StatusNotFound).JSON(SendCodeResponse{
+				Message: "User not found",
+				Success: false,
 			})
 		}
 
 		// Check OTP match
 		if user.OTP != body.OTP {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"message": "Invalid OTP",
+			return c.Status(fiber.StatusUnauthorized).JSON(SendCodeResponse{
+				Message: "Invalid OTP",
+				Success: false,
 			})
 		}
 
 		// Check expiry
 		if time.Now().After(user.OTPExpiry) {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"message": "OTP expired",
+			return c.Status(fiber.StatusUnauthorized).JSON(SendCodeResponse{
+				Message: "OTP expired",
+				Success: false,
 			})
 		}
 
@@ -371,13 +387,15 @@ func VerifyOTP() fiber.Handler {
 			Exec(c.Context())
 
 		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"message": "Failed to verify OTP",
+			return c.Status(fiber.StatusInternalServerError).JSON(SendCodeResponse{
+				Message: "Failed to verify OTP",
+				Success: false,
 			})
 		}
 
-		return c.Status(fiber.StatusOK).JSON(fiber.Map{
-			"message": "OTP verified successfully",
+		return c.Status(fiber.StatusOK).JSON(SendCodeResponse{
+			Message: "OTP verified successfully",
+			Success: true,
 		})
 	}
 }
@@ -393,15 +411,17 @@ func ResetPassword() fiber.Handler {
 		}
 
 		if err := c.Bind().Body(&body); err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"message": "Invalid request body",
+			return c.Status(fiber.StatusBadRequest).JSON(SendCodeResponse{
+				Message: "Invalid request body",
+				Success: false,
 			})
 		}
 
 		// Validate passwords match
 		if body.NewPassword != body.ConfirmPassword {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"message": "Passwords do not match",
+			return c.Status(fiber.StatusBadRequest).JSON(SendCodeResponse{
+				Message: "Passwords do not match",
+				Success: false,
 			})
 		}
 
@@ -412,26 +432,29 @@ func ResetPassword() fiber.Handler {
 			Scan(c.Context())
 
 		if err != nil {
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-				"message": "User not found",
+			return c.Status(fiber.StatusNotFound).JSON(SendCodeResponse{
+				Message: "User not found",
+				Success: false,
 			})
 		}
 
 		// Ensure OTP was verified
 		if !user.IsVerified {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"message": "OTP not verified",
+			return c.Status(fiber.StatusUnauthorized).JSON(SendCodeResponse{
+				Message: "OTP not verified",
+				Success: false,
 			})
 		}
 
 		// Hash password
 		hashedPassword, err := bcrypt.GenerateFromPassword(
 			[]byte(body.NewPassword),
-			bcrypt.DefaultCost,
+			14,
 		)
 		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"message": "Failed to hash password",
+			return c.Status(fiber.StatusInternalServerError).JSON(SendCodeResponse{
+				Message: "Failed to hash password",
+				Success: false,
 			})
 		}
 
@@ -446,13 +469,24 @@ func ResetPassword() fiber.Handler {
 			Exec(c.Context())
 
 		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"message": "Failed to update password",
+			return c.Status(fiber.StatusInternalServerError).JSON(SendCodeResponse{
+				Message: "Failed to update password",
+				Success: false,
 			})
 		}
 
+		return c.Status(fiber.StatusOK).JSON(SendCodeResponse{
+			Message: "Password reset successful",
+			Success: true,
+		})
+	}
+}
+
+func Home() fiber.Handler{
+	return func(c fiber.Ctx) error{
 		return c.Status(fiber.StatusOK).JSON(fiber.Map{
-			"message": "Password reset successful",
+			"message": "Welcome to ViralForge API!",
+			"success": true,
 		})
 	}
 }

@@ -9,6 +9,8 @@ import (
 
 
 func NormalRoutes(app *fiber.App){
+	app.Get("/", handlers.Home())
+
 
 	auth:=app.Group("/auth/v1")
 	auth.Get("/", middleware.FetchUser(), handlers.GetUserFromId())

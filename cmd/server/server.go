@@ -2,9 +2,12 @@ package main
 
 import (
 	"crypto/tls"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
+	"runtime"
+	"time"
 
 	"viralforge/cmd/worker"
 	"viralforge/src/connect"
@@ -13,6 +16,8 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
+	"github.com/gofiber/fiber/v3/middleware/limiter"
+	"github.com/gofiber/storage/redis/v3"
 	"github.com/hibiken/asynq"
 	"github.com/hibiken/asynqmon"
 )
@@ -23,6 +28,30 @@ func main() {
     connect.AsynqConnect()
 
     app := fiber.New()
+
+    store := redis.New(redis.Config{
+		Host:     envs.AIVEN_HOST,
+		Port:     15543,                
+		Password: envs.AIVEN_PASSWORD,
+		Database:  0,
+		TLSConfig:  &tls.Config{}, // or proper TLS config if needed
+        PoolSize:  10 * runtime.GOMAXPROCS(0),
+	})
+
+    app.Use(limiter.New(limiter.Config{
+		Max:        4,
+		Expiration: 1 * time.Minute,
+		Storage:    store,
+        KeyGenerator: func(c fiber.Ctx) string {
+            key := c.IP()
+            fmt.Println("Limiter Key:", key)
+            return key
+        },
+        LimitReached: func(c fiber.Ctx) error {
+            fmt.Println("❌ Rate limit hit for:", c.IP())
+            return c.Status(429).SendString("Too many requests")
+        },
+	}))
 
     app.Use(cors.New(cors.Config{
         AllowOrigins: []string{"http://localhost:5173","https://www.viralforge.xastros.site/"},
