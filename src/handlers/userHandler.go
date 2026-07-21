@@ -1,8 +1,13 @@
 package handlers
 
 import (
+	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 	"viralforge/src/connect"
 	"viralforge/src/env"
@@ -10,6 +15,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/redis/go-redis/v9"
 	"github.com/resend/resend-go/v3"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -35,6 +41,8 @@ type Claims struct {
 	UserId int64 `json:"user_id"`
 	jwt.RegisteredClaims
 }
+
+var OTPRedis = connect.NewOTPClient()
 
 func GenerateToken(userId int64) (string, error) {
 	envs := env.NewEnv()
@@ -68,9 +76,125 @@ func CheckPasswordHash(password, hash string) bool {
 	return err == nil
 }
 
+// ------------------------------------****-------------------------------------------------
+func GenerateRedisOTP() string {
+	return fmt.Sprintf("%06d", rand.Intn(1000000))
+}
+
+func otpKey(email string) string {
+	return "otp: " + strings.ToLower(strings.TrimSpace(email))
+}
+func StoreRedisOTP(ctx context.Context, email, otp string, expiration time.Duration) error {
+	key := otpKey(email)
+	sum := sha256.Sum256([]byte(otp))
+	encoded := hex.EncodeToString(sum[:])
+	return OTPRedis.Set(ctx, key, encoded, 10*time.Minute).Err()
+}
+
+func SendEmailWithRedisOTP() fiber.Handler {
+	return func(c fiber.Ctx) error {
+		var body struct {
+			Email string `json:"email"`
+		}
+		if err := c.Bind().Body(&body); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
+				Message: "null value",
+				Data:    UserResponse{},
+			})
+		}
+
+		if body.Email == "" {
+			return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
+				Message: "email is empty",
+				Data:    UserResponse{},
+			})
+		}
+
+		// if user already exists, return error
+		exists, err := connect.Db.NewSelect().Model((*models.User)(nil)).Where("email = ?", body.Email).Exists(c.Context())
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
+				Message: "Failed to check user",
+				Data:    UserResponse{},
+			})
+		}
+		if exists {
+			return c.Status(fiber.StatusConflict).JSON(AuthResponse{
+				Message: "user already exist",
+			})
+		}
+
+		otp := GenerateRedisOTP()
+		err = StoreRedisOTP(c.Context(), body.Email, otp, 10*time.Minute)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(AuthResponse{
+				Message: "Failed to store OTP in Redis",
+				Data:    UserResponse{},
+			})
+		}
+
+		envs := env.NewEnv()
+		client := resend.NewClient(envs.RESEND_API_KEY)
+		params := &resend.SendEmailRequest{
+			From:    "ViralForge <noreply@viralforge.xastros.site>",
+			To:      []string{body.Email},
+			Subject: "Your OTP Code - ViralForge",
+			Html: fmt.Sprintf(`
+				<h2>Your OTP Code</h2>
+				<p>Your verification code is:</p>
+				<h1>%s</h1>
+				<p>This code will expire in 10 minutes.</p>
+			`, otp),
+		}
+
+		_, err = client.Emails.Send(params)
+		if err != nil {
+			fmt.Println(err.Error())
+			return c.Status(fiber.StatusInternalServerError).JSON(SendCodeResponse{
+				Message: "Failed to send email",
+				Success: false,
+			})
+		}
+
+		// if sent successfully, now register user
+		return c.Status(fiber.StatusOK).JSON(SendCodeResponse{
+			Message: "OTP sent successfully",
+			Success: true,
+		})
+	}
+}
+
+func VerifyRedisOTP(ctx context.Context, email, userEnteredOTP string) (bool, error) {
+	key := otpKey(email)
+
+	storedHex, err := OTPRedis.Get(ctx, key).Result()
+	if err == redis.Nil {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, err
+	}
+	sum := sha256.Sum256([]byte(userEnteredOTP))
+	inputHex := hex.EncodeToString(sum[:])
+	return subtle.ConstantTimeCompare([]byte(storedHex), []byte(inputHex)) == 1, nil
+}
+
+func DeleteRedisOTP(ctx context.Context, email string) error {
+	key := otpKey(email)
+	return OTPRedis.Del(ctx, key).Err()
+}
+
+// ------------------------------------------***--------------------------------------------------------
+
 func RegisterUser() fiber.Handler {
 	return func(c fiber.Ctx) error {
-		var body models.User
+		var body struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+			Name     string `json:"name"`
+			OTP      string `json:"otp"`
+		}
 
 		if err := c.Bind().Body(&body); err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
@@ -79,25 +203,34 @@ func RegisterUser() fiber.Handler {
 			},
 			)
 		}
-		// 1. first check if user exists
-		fmt.Println("user provided details: ", body)
-		userEmail := body.Email
-		exists, err := connect.Db.NewSelect().Model((*models.User)(nil)).Where("email = ?", userEmail).Exists(c.Context())
+
+		//  hash the password and create user
+		// check otp , use redis to store otp and expiry time , send otp to email , verify otp , then create user
+		// verify otp and if correct , then create user else  send otp again
+
+		validotp, err := VerifyRedisOTP(c.Context(), body.Email, body.OTP)
 		if err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
-				Message: "Failed to check user",
+			return c.Status(fiber.StatusInternalServerError).JSON(AuthResponse{
+				Message: "Failed to verify OTP",
 				Data:    UserResponse{},
 			})
 		}
-		fmt.Println("user exists; ", exists)
-		if exists {
-			return c.Status(fiber.StatusConflict).JSON(AuthResponse{
-				Message: "user already exist",
+
+		if !validotp {
+			return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
+				Message: "Invalid OTP",
+				Data:    UserResponse{},
 			})
 		}
 
-		// 2. if not exists, hash the password and create user
-		// check otp , use redis to store otp and expiry time , send otp to email , verify otp , then create user
+		// delete otp from redis after successful verification
+		err = DeleteRedisOTP(c.Context(), body.Email)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(AuthResponse{
+				Message: "Failed to delete OTP from Redis",
+				Data:    UserResponse{},
+			})
+		}
 
 		hashPassword, err := HashPassword(body.Password)
 		if err != nil {
@@ -126,7 +259,7 @@ func RegisterUser() fiber.Handler {
 		if err != nil {
 			_, err = connect.Db.NewDelete().
 				Model((*models.User)(nil)).
-				Where("email = ?", userEmail).
+				Where("email = ?", user.Email).
 				Exec(c.Context())
 			return c.Status(fiber.StatusBadRequest).JSON(AuthResponse{
 				Message: "failed to generate token",
@@ -305,7 +438,7 @@ func SendCode() fiber.Handler {
 		params := &resend.SendEmailRequest{
 			From:    "ViralForge <noreply@viralforge.xastros.site>",
 			To:      []string{body.Email},
-			Subject: "Your OTP Code - ViralForge",
+			Subject: "Your Reset OTP Code - ViralForge",
 			Html: fmt.Sprintf(`
 				<h2>Your OTP Code</h2>
 				<p>Your verification code is:</p>
