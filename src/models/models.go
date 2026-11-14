@@ -51,8 +51,15 @@ type VideoUpload struct {
 	IsDeleted         bool              `bun:"," json:"is_deleted"`
 	SearchVector      string            `bun:"search_vector" json:"search_vector"`
 	TranscodeStatus   bool              `bun:"," json:"transcode_status"`
-	CreatedAt         time.Time         `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
-	UpdatedAt         time.Time         `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
+
+	// Spec: Location and Merchant connection relationships
+	MerchantID    *int64 `bun:"merchant_id" json:"merchant_id,omitempty"`
+	ShopID        *int64 `bun:"shop_id" json:"shop_id,omitempty"`
+	ProductID     *int64 `bun:"product_id" json:"product_id,omitempty"`
+	ShopProductID *int64 `bun:"shop_product_id" json:"shop_product_id,omitempty"`
+
+	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
 }
 
 type VideoQuality struct {
@@ -170,16 +177,185 @@ type Comment struct {
 	User *User `bun:"rel:belongs-to,join:user_id=id" json:"user,omitempty"`
 }
 
-// authentication  and user
-// creator system
-// business system
-// video content system
-// post/feed
-// review
-// product
-// search
-// recommendation
-// shorts
-// location
-// notification
-// analytics
+// UserRole represents a role in the system
+type RoleName string
+
+const (
+	RoleCustomer RoleName = "CUSTOMER"
+	RoleMerchant RoleName = "MERCHANT"
+	RoleCreator  RoleName = "CREATOR"
+	RoleAdmin    RoleName = "ADMIN"
+)
+
+type Role struct {
+	bun.BaseModel `bun:"table:roles,alias:r"`
+
+	ID   int64    `bun:",pk,autoincrement" json:"id"`
+	Name RoleName `bun:"name,unique,notnull" json:"name"`
+}
+
+type UserRole struct {
+	bun.BaseModel `bun:"table:user_roles,alias:ur"`
+
+	ID     int64 `bun:",pk,autoincrement" json:"id"`
+	UserID int64 `bun:"user_id,notnull" json:"user_id"`
+	RoleID int64 `bun:"role_id,notnull" json:"role_id"`
+
+	Role *Role `bun:"rel:belongs-to,join:role_id=id" json:"role,omitempty"`
+	User *User `bun:"rel:belongs-to,join:user_id=id" json:"user,omitempty"`
+}
+
+// VerificationStatus
+type VerificationStatus string
+
+const (
+	VerificationPending  VerificationStatus = "PENDING"
+	VerificationVerified VerificationStatus = "VERIFIED"
+	VerificationRejected VerificationStatus = "REJECTED"
+)
+
+// BusinessType
+type BusinessType string
+
+const (
+	BusinessTypeRetail  BusinessType = "RETAIL"
+	BusinessTypeOnline  BusinessType = "ONLINE"
+	BusinessTypeService BusinessType = "SERVICE"
+)
+
+type MerchantProfile struct {
+	bun.BaseModel `bun:"table:merchant_profiles,alias:mp"`
+
+	ID                  int64              `bun:",pk,autoincrement" json:"id"`
+	OwnerUserID         int64              `bun:"owner_user_id,notnull" json:"owner_user_id"`
+	BusinessName        string             `bun:"business_name,notnull" json:"business_name"`
+	BusinessDescription string             `bun:"business_description,type:text" json:"business_description"`
+	BusinessType        BusinessType       `bun:"business_type,notnull,default:'RETAIL'" json:"business_type"`
+	VerificationStatus  VerificationStatus `bun:"verification_status,notnull,default:'PENDING'" json:"verification_status"`
+	CreatedAt           time.Time          `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt           time.Time          `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
+
+	Owner *User `bun:"rel:belongs-to,join:owner_user_id=id" json:"owner,omitempty"`
+}
+
+type MerchantPermission string
+
+const (
+	MerchantPermissionOwner            MerchantPermission = "OWNER"
+	MerchantPermissionManager          MerchantPermission = "MANAGER"
+	MerchantPermissionContentManager   MerchantPermission = "CONTENT_MANAGER"
+	MerchantPermissionInventoryManager MerchantPermission = "INVENTORY_MANAGER"
+)
+
+type MemberStatus string
+
+const (
+	MemberStatusActive    MemberStatus = "ACTIVE"
+	MemberStatusSuspended MemberStatus = "SUSPENDED"
+)
+
+type MerchantMember struct {
+	bun.BaseModel `bun:"table:merchant_members,alias:mm"`
+
+	ID         int64              `bun:",pk,autoincrement" json:"id"`
+	MerchantID int64              `bun:"merchant_id,notnull" json:"merchant_id"`
+	UserID     int64              `bun:"user_id,notnull" json:"user_id"`
+	Permission MerchantPermission `bun:"permission,notnull,default:'MANAGER'" json:"permission"`
+	Status     MemberStatus       `bun:"status,notnull,default:'ACTIVE'" json:"status"`
+	CreatedAt  time.Time          `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
+
+	Merchant *MerchantProfile `bun:"rel:belongs-to,join:merchant_id=id" json:"merchant,omitempty"`
+	User     *User            `bun:"rel:belongs-to,join:user_id=id" json:"user,omitempty"`
+}
+
+type ShopStatus string
+
+const (
+	ShopStatusActive   ShopStatus = "ACTIVE"
+	ShopStatusInactive ShopStatus = "INACTIVE"
+)
+
+type Shop struct {
+	bun.BaseModel `bun:"table:shops,alias:s"`
+
+	ID                 int64              `bun:",pk,autoincrement" json:"id"`
+	MerchantID         int64              `bun:"merchant_id,notnull" json:"merchant_id"`
+	Name               string             `bun:"name,notnull" json:"name"`
+	Description        string             `bun:"description,type:text" json:"description"`
+	Phone              string             `bun:"phone" json:"phone"`
+	Address            string             `bun:"address,type:text,notnull" json:"address"`
+	City               string             `bun:"city" json:"city"`
+	State              string             `bun:"state" json:"state"`
+	Pincode            string             `bun:"pincode" json:"pincode"`
+	Country            string             `bun:"country,default:'India'" json:"country"`
+	Latitude           float64            `bun:"-" json:"latitude"`
+	Longitude          float64            `bun:"-" json:"longitude"`
+	Status             ShopStatus         `bun:"status,notnull,default:'ACTIVE'" json:"status"`
+	VerificationStatus VerificationStatus `bun:"verification_status,notnull,default:'PENDING'" json:"verification_status"`
+	CreatedAt          time.Time          `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt          time.Time          `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
+
+	Merchant *MerchantProfile `bun:"rel:belongs-to,join:merchant_id=id" json:"merchant,omitempty"`
+}
+
+type Product struct {
+	bun.BaseModel `bun:"table:products,alias:p"`
+
+	ID             int64                  `bun:",pk,autoincrement" json:"id"`
+	Name           string                 `bun:"name,notnull" json:"name"`
+	Brand          string                 `bun:"brand" json:"brand"`
+	Description    string                 `bun:"description,type:text" json:"description"`
+	CategoryID     *int64                 `bun:"category_id" json:"category_id,omitempty"`
+	Specifications map[string]interface{} `bun:"specifications,type:jsonb" json:"specifications,omitempty"`
+	CreatedAt      time.Time              `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt      time.Time              `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
+}
+
+type StockAvailability string
+
+const (
+	AvailabilityAvailable  StockAvailability = "AVAILABLE"
+	AvailabilityUnknown    StockAvailability = "UNKNOWN"
+	AvailabilityOutOfStock StockAvailability = "OUT_OF_STOCK"
+)
+
+type ShopProductStatus string
+
+const (
+	ShopProductStatusActive   ShopProductStatus = "ACTIVE"
+	ShopProductStatusInactive ShopProductStatus = "INACTIVE"
+)
+
+type ShopProduct struct {
+	bun.BaseModel `bun:"table:shop_products,alias:sp"`
+
+	ID             int64             `bun:",pk,autoincrement" json:"id"`
+	ShopID         int64             `bun:"shop_id,notnull" json:"shop_id"`
+	ProductID      int64             `bun:"product_id,notnull" json:"product_id"`
+	Price          float64           `bun:"price,notnull" json:"price"`
+	Currency       string            `bun:"currency,default:'INR'" json:"currency"`
+	Availability   StockAvailability `bun:"availability,notnull,default:'AVAILABLE'" json:"availability"`
+	StockUpdatedAt time.Time         `bun:"stock_updated_at,nullzero,notnull,default:current_timestamp" json:"stock_updated_at"`
+	Status         ShopProductStatus `bun:"status,notnull,default:'ACTIVE'" json:"status"`
+	CreatedAt      time.Time         `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt      time.Time         `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
+
+	Shop    *Shop    `bun:"rel:belongs-to,join:shop_id=id" json:"shop,omitempty"`
+	Product *Product `bun:"rel:belongs-to,join:product_id=id" json:"product,omitempty"`
+}
+
+type UserSavedLocation struct {
+	bun.BaseModel `bun:"table:user_saved_locations,alias:usl"`
+
+	ID        int64     `bun:",pk,autoincrement" json:"id"`
+	UserID    int64     `bun:"user_id,notnull" json:"user_id"`
+	Label     string    `bun:"label" json:"label"` // e.g. Home, Work
+	Address   string    `bun:"address,type:text" json:"address"`
+	City      string    `bun:"city" json:"city"`
+	Pincode   string    `bun:"pincode" json:"pincode"`
+	Latitude  float64   `bun:"-" json:"latitude"`
+	Longitude float64   `bun:"-" json:"longitude"`
+	CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
+
+	User *User `bun:"rel:belongs-to,join:user_id=id" json:"user,omitempty"`
+}
