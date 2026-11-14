@@ -145,7 +145,7 @@ func UpdateComment() fiber.Handler{
 			return c.Status(fiber.StatusBadRequest).JSON(UpdateCommentResponse{
 				Success: false,
 				Code :400,
-				Message: fmt.Sprintf("Error while fetching data from request body : ", err),
+				Message: fmt.Sprintf("Error while fetching data from request body : %v", err),
 			})
 		}
 
@@ -153,7 +153,7 @@ func UpdateComment() fiber.Handler{
 		if err!=nil{
 			return c.Status(fiber.StatusBadRequest).JSON(UpdateCommentResponse{
 				Code:400,
-				Message: fmt.Sprintf("Error while editing comment: ", err),
+				Message: fmt.Sprintf("Error while editing comment: %v", err),
 				Success: false,
 			})
 		}
@@ -174,12 +174,12 @@ func DeleteComment() fiber.Handler{
 		_,err := connect.Db.NewUpdate().Model((*models.Comment)(nil)).Set("status = ?", models.CommentHidden).Where("id = ?",comment_id).Exec(c.Context())
 		if err!=nil{
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"Message":fmt.Sprintf("Error while deleting comment: ", err),
+				"Message":fmt.Sprintf("Error while deleting comment: %v", err),
 				"Code":400,
 			})
 		}
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"Message":fmt.Sprintf(" Successfully deleted comment"),
+			"Message":" Successfully deleted comment",
 			"Code":200,
 		})
 		
@@ -209,7 +209,7 @@ func GetTopLevelComments() fiber.Handler{
 			return q.Column("id", "name", "email", "created_at", "updated_at")
 		}).Where("video_id = ?", v_id).Where("parent_comment_id IS NULL").Where("status = ?", models.CommentVisible).Order("created_at ASC").Scan(c.Context())
 		if err!=nil{
-			fmt.Printf("error: ", err)
+			fmt.Printf("error: %v\n", err)
 			return c.Status(fiber.StatusBadRequest).JSON(GetCommentsResponse{
 				Success:false,
 				Code: 400,

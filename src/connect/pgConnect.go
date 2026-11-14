@@ -60,6 +60,27 @@ func PgConnect() {
 
 	if _, err:= Db.NewCreateTable().Model((*models.VideoQuality)(nil)).IfNotExists().Exec(ctx); err!=nil{
 		log.Fatal((err))
-	}			
+	}
+
+	// Ensure PostGIS extension and spec tables exist
+	if _, err := Db.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS postgis;"); err != nil {
+		log.Println("PostGIS extension notice:", err)
+	}
+
+	for _, model := range []interface{}{
+		(*models.Role)(nil),
+		(*models.UserRole)(nil),
+		(*models.MerchantProfile)(nil),
+		(*models.MerchantMember)(nil),
+		(*models.Shop)(nil),
+		(*models.Product)(nil),
+		(*models.ShopProduct)(nil),
+		(*models.UserSavedLocation)(nil),
+	} {
+		if _, err := Db.NewCreateTable().Model(model).IfNotExists().Exec(ctx); err != nil {
+			log.Printf("Create table notice for %T: %v\n", model, err)
+		}
+	}
+			
 	log.Println("Connected to Neon DB successfully 🚀")
 }

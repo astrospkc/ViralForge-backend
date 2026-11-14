@@ -154,12 +154,14 @@ func CreateVideo() fiber.Handler{
 		// }
 		
 		var body struct {
-			
-			Filename  string `json:"filename"`
-			FileType  string `json:"fileType"`
-			ObjectKey string `json:"objectKey"`
+			Filename      string `json:"filename"`
+			FileType      string `json:"fileType"`
+			ObjectKey     string `json:"objectKey"`
+			MerchantID    *int64 `json:"merchant_id"`
+			ShopID        *int64 `json:"shop_id"`
+			ProductID     *int64 `json:"product_id"`
+			ShopProductID *int64 `json:"shop_product_id"`
 		}
-
 
 		if err:=c.Bind().Body(&body); err!=nil{
 			return c.Status(fiber.StatusBadRequest).JSON(VideoUploadResponse{
@@ -183,13 +185,92 @@ func CreateVideo() fiber.Handler{
 
 		fmt.Println("body for create video: ", body)
 
-		
-		videoUpload:=&models.VideoUpload{
-			UserID: u_id,
-			FileURL: body.ObjectKey,
-			FileType: fileType,
-			Tags:[]string{},
-			
+		// Video ownership & relationship rules from spec (Section 6 & 12):
+		// 1. If merchant_id is provided, verify user is owner or authorized member
+		if body.MerchantID != nil && *body.MerchantID > 0 {
+			authorized, err := isUserAuthorizedForMerchant(c, *body.MerchantID, u_id)
+			if err != nil || !authorized {
+				return c.Status(fiber.StatusForbidden).JSON(VideoUploadResponse{
+					Code:    403,
+					Success: false,
+					Message: "You are not authorized to associate videos with this merchant",
+				})
+			}
+		}
+
+		// 2. If shop_id is provided, verify shop belongs to referenced merchant (or verify user ownership)
+		if body.ShopID != nil && *body.ShopID > 0 {
+			var shop models.Shop
+			err := connect.Db.NewSelect().Model(&shop).Where("id = ?", *body.ShopID).Scan(c.Context())
+			if err != nil {
+				return c.Status(fiber.StatusBadRequest).JSON(VideoUploadResponse{
+					Code:    400,
+					Success: false,
+					Message: "Referenced shop does not exist",
+				})
+			}
+			if body.MerchantID != nil && shop.MerchantID != *body.MerchantID {
+				return c.Status(fiber.StatusBadRequest).JSON(VideoUploadResponse{
+					Code:    400,
+					Success: false,
+					Message: "Shop does not belong to the referenced merchant",
+				})
+			}
+			authorized, err := isUserAuthorizedForMerchant(c, shop.MerchantID, u_id)
+			if err != nil || !authorized {
+				return c.Status(fiber.StatusForbidden).JSON(VideoUploadResponse{
+					Code:    403,
+					Success: false,
+					Message: "You are not authorized to associate videos with this shop",
+				})
+			}
+			if body.MerchantID == nil {
+				body.MerchantID = &shop.MerchantID
+			}
+		}
+
+		// 3. If shop_product_id is provided, verify shop & product match
+		if body.ShopProductID != nil && *body.ShopProductID > 0 {
+			var sp models.ShopProduct
+			err := connect.Db.NewSelect().Model(&sp).Where("id = ?", *body.ShopProductID).Scan(c.Context())
+			if err != nil {
+				return c.Status(fiber.StatusBadRequest).JSON(VideoUploadResponse{
+					Code:    400,
+					Success: false,
+					Message: "Referenced shop_product listing does not exist",
+				})
+			}
+			if body.ShopID != nil && sp.ShopID != *body.ShopID {
+				return c.Status(fiber.StatusBadRequest).JSON(VideoUploadResponse{
+					Code:    400,
+					Success: false,
+					Message: "Shop product listing does not belong to the referenced shop",
+				})
+			}
+			if body.ProductID != nil && sp.ProductID != *body.ProductID {
+				return c.Status(fiber.StatusBadRequest).JSON(VideoUploadResponse{
+					Code:    400,
+					Success: false,
+					Message: "Shop product listing does not match the referenced product",
+				})
+			}
+			if body.ShopID == nil {
+				body.ShopID = &sp.ShopID
+			}
+			if body.ProductID == nil {
+				body.ProductID = &sp.ProductID
+			}
+		}
+
+		videoUpload := &models.VideoUpload{
+			UserID:        u_id,
+			FileURL:       body.ObjectKey,
+			FileType:      fileType,
+			Tags:          []string{},
+			MerchantID:    body.MerchantID,
+			ShopID:        body.ShopID,
+			ProductID:     body.ProductID,
+			ShopProductID: body.ShopProductID,
 		}
 
 		_, err = connect.Db.NewInsert().Model(videoUpload).Exec(c.Context())
@@ -1022,6 +1103,242 @@ func SearchVideos() fiber.Handler{
 		return c.Status(fiber.StatusBadRequest).JSON(SearchVideosResponse{
 			Success: true,
 			Code : 200,
+		})
+	}
+}
+
+// Spec Section 8 & 9: Related shops, related products, and full video response
+func GetVideoDetailsWithRelations() fiber.Handler {
+	return func(c fiber.Ctx) error {
+		idParam := c.Params("id")
+		vID, err := strconv.ParseInt(idParam, 10, 64)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"message": "Invalid video id",
+			})
+		}
+
+		var video models.VideoUpload
+		err = connect.Db.NewSelect().
+			Model(&video).
+			Where("id = ? AND is_deleted = false", vID).
+			Scan(c.Context())
+
+		if err != nil {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "Video not found",
+			})
+		}
+
+		resp := fiber.Map{
+			"video": fiber.Map{
+				"id":           video.ID,
+				"title":        video.Title,
+				"description":  video.Description,
+				"playback_url": video.MasterCdnUrl,
+				"thumbnail":    video.SelectedThumbnail,
+				"status":       video.PublishStatus,
+				"duration":     video.Duration,
+			},
+		}
+
+		// Uploader / Creator
+		var user models.User
+		if err := connect.Db.NewSelect().Model(&user).Where("id = ?", video.UserID).Scan(c.Context()); err == nil {
+			resp["creator"] = fiber.Map{
+				"user_id": user.ID,
+				"name":    user.Name,
+				"avatar":  user.Avatar,
+			}
+		}
+
+		// Merchant
+		if video.MerchantID != nil {
+			var merchant models.MerchantProfile
+			if err := connect.Db.NewSelect().Model(&merchant).Where("id = ?", *video.MerchantID).Scan(c.Context()); err == nil {
+				resp["merchant"] = fiber.Map{
+					"id":            merchant.ID,
+					"business_name": merchant.BusinessName,
+					"business_type": merchant.BusinessType,
+				}
+			}
+		}
+
+		// Shop
+		if video.ShopID != nil {
+			type ShopGeo struct {
+				models.Shop
+				Latitude  float64 `json:"latitude"`
+				Longitude float64 `json:"longitude"`
+			}
+			var shop ShopGeo
+			err := connect.Db.NewSelect().
+				TableExpr("shops AS s").
+				ColumnExpr("s.*").
+				ColumnExpr("ST_Y(s.location::geometry) AS latitude").
+				ColumnExpr("ST_X(s.location::geometry) AS longitude").
+				Where("s.id = ?", *video.ShopID).
+				Scan(c.Context(), &shop)
+			if err == nil {
+				resp["shop"] = fiber.Map{
+					"id":        shop.ID,
+					"name":      shop.Name,
+					"latitude":  shop.Latitude,
+					"longitude": shop.Longitude,
+					"address":   shop.Address,
+					"phone":     shop.Phone,
+				}
+			}
+		}
+
+		// Product
+		if video.ProductID != nil {
+			var product models.Product
+			if err := connect.Db.NewSelect().Model(&product).Where("id = ?", *video.ProductID).Scan(c.Context()); err == nil {
+				resp["product"] = fiber.Map{
+					"id":             product.ID,
+					"name":           product.Name,
+					"brand":          product.Brand,
+					"description":    product.Description,
+					"specifications": product.Specifications,
+				}
+			}
+		}
+
+		// Shop Listing (Price and stock)
+		if video.ShopProductID != nil {
+			var sp models.ShopProduct
+			if err := connect.Db.NewSelect().Model(&sp).Where("id = ?", *video.ShopProductID).Scan(c.Context()); err == nil {
+				resp["shop_listing"] = fiber.Map{
+					"id":               sp.ID,
+					"price":            sp.Price,
+					"currency":         sp.Currency,
+					"availability":     sp.Availability,
+					"stock_updated_at": sp.StockUpdatedAt,
+				}
+			}
+		}
+
+		return c.Status(fiber.StatusOK).JSON(resp)
+	}
+}
+
+// GET /videos/:id/related-shops
+func GetVideoRelatedShops() fiber.Handler {
+	return func(c fiber.Ctx) error {
+		idParam := c.Params("id")
+		vID, err := strconv.ParseInt(idParam, 10, 64)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Invalid video id"})
+		}
+
+		var video models.VideoUpload
+		if err := connect.Db.NewSelect().Model(&video).Where("id = ?", vID).Scan(c.Context()); err != nil {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"success": false, "message": "Video not found"})
+		}
+
+		type ShopRes struct {
+			ID        int64   `json:"id"`
+			Name      string  `json:"name"`
+			Address   string  `json:"address"`
+			City      string  `json:"city"`
+			Latitude  float64 `json:"latitude"`
+			Longitude float64 `json:"longitude"`
+			Price     float64 `json:"price,omitempty"`
+		}
+
+		var shops []ShopRes
+		if video.ProductID != nil {
+			query := `
+				SELECT
+					s.id, s.name, s.address, s.city,
+					ST_Y(s.location::geometry) AS latitude,
+					ST_X(s.location::geometry) AS longitude,
+					sp.price
+				FROM shops s
+				JOIN shop_products sp ON sp.shop_id = s.id
+				WHERE sp.product_id = ? AND s.status = 'ACTIVE' AND sp.status = 'ACTIVE'
+				ORDER BY sp.price ASC;
+			`
+			rows, err := connect.Db.QueryContext(c.Context(), query, *video.ProductID)
+			if err == nil {
+				defer rows.Close()
+				for rows.Next() {
+					var s ShopRes
+					if err := rows.Scan(&s.ID, &s.Name, &s.Address, &s.City, &s.Latitude, &s.Longitude, &s.Price); err == nil {
+						shops = append(shops, s)
+					}
+				}
+			}
+		} else if video.ShopID != nil {
+			query := `
+				SELECT
+					s.id, s.name, s.address, s.city,
+					ST_Y(s.location::geometry) AS latitude,
+					ST_X(s.location::geometry) AS longitude,
+					0 AS price
+				FROM shops s
+				WHERE s.id = ?;
+			`
+			rows, err := connect.Db.QueryContext(c.Context(), query, *video.ShopID)
+			if err == nil {
+				defer rows.Close()
+				for rows.Next() {
+					var s ShopRes
+					if err := rows.Scan(&s.ID, &s.Name, &s.Address, &s.City, &s.Latitude, &s.Longitude, &s.Price); err == nil {
+						shops = append(shops, s)
+					}
+				}
+			}
+		}
+
+		if shops == nil {
+			shops = []ShopRes{}
+		}
+
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+			"success": true,
+			"data":    shops,
+		})
+	}
+}
+
+// GET /videos/:id/related-products
+func GetVideoRelatedProducts() fiber.Handler {
+	return func(c fiber.Ctx) error {
+		idParam := c.Params("id")
+		vID, err := strconv.ParseInt(idParam, 10, 64)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Invalid video id"})
+		}
+
+		var video models.VideoUpload
+		if err := connect.Db.NewSelect().Model(&video).Where("id = ?", vID).Scan(c.Context()); err != nil {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"success": false, "message": "Video not found"})
+		}
+
+		var products []models.Product
+		if video.ProductID != nil {
+			_ = connect.Db.NewSelect().Model(&products).Where("id = ?", *video.ProductID).Scan(c.Context())
+		} else if video.ShopID != nil {
+			_ = connect.Db.NewSelect().
+				TableExpr("products AS p").
+				ColumnExpr("p.*").
+				Join("JOIN shop_products AS sp ON sp.product_id = p.id").
+				Where("sp.shop_id = ? AND sp.status = 'ACTIVE'", *video.ShopID).
+				Limit(10).
+				Scan(c.Context(), &products)
+		}
+
+		if products == nil {
+			products = []models.Product{}
+		}
+
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+			"success": true,
+			"data":    products,
 		})
 	}
 }
