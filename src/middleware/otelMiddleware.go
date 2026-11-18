@@ -8,7 +8,6 @@ import (
 
 	"github.com/gofiber/contrib/v3/otel"
 	"github.com/gofiber/fiber/v3"
-	"github.com/gofiber/fiber/v3/middleware/logger"
 	"github.com/gofiber/fiber/v3/middleware/recover"
 )
 
@@ -35,11 +34,13 @@ func OtelMiddleware(app *fiber.App) {
 	}()
 
 	// Standard middleware
-	app.Use(logger.New())
 	app.Use(recover.New())
 
-	// OpenTelemetry middleware
+	// OpenTelemetry tracing middleware
 	app.Use(otel.Middleware())
 
-	log.Println("otel middleware started")
+	// Structured tracking, duration, metrics, and correlation IDs
+	app.Use(RequestTracker())
+
+	log.Println("otel & tracking middleware started")
 }
