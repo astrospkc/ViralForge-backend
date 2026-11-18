@@ -5,10 +5,15 @@ import (
 	"viralforge/src/middleware"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/adaptor"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func NormalRoutes(app *fiber.App) {
 	app.Get("/", handlers.Home())
+
+	// Prometheus Metrics Endpoint (Scraped by Prometheus on :9090)
+	app.Get("/metrics", adaptor.HTTPHandler(promhttp.Handler()))
 
 	auth := app.Group("/auth/v1")
 	auth.Get("/", middleware.FetchUser(), handlers.GetUserFromId())
