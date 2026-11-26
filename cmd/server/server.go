@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+
 	"runtime"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
+
 	"github.com/gofiber/fiber/v3/middleware/limiter"
 	"github.com/gofiber/storage/redis/v3"
 	"github.com/hibiken/asynq"
@@ -40,8 +42,8 @@ func main() {
 	})
 
 	app.Use(limiter.New(limiter.Config{
-		Max:        50,
-		Expiration: 1 * time.Minute,
+		Max:        10000,
+		Expiration: 50 * time.Minute,
 		Storage:    store,
 		KeyGenerator: func(c fiber.Ctx) string {
 			key := c.IP()
