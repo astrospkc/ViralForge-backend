@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"math/rand"
 	"strings"
 	"time"
@@ -82,13 +83,13 @@ func GenerateRedisOTP() string {
 }
 
 func otpKey(email string) string {
-	return "otp: " + strings.ToLower(strings.TrimSpace(email))
+	return "otp:" + strings.ToLower(strings.TrimSpace(email))
 }
 func StoreRedisOTP(ctx context.Context, email, otp string, expiration time.Duration) error {
 	key := otpKey(email)
 	sum := sha256.Sum256([]byte(otp))
 	encoded := hex.EncodeToString(sum[:])
-	return OTPRedis.Set(ctx, key, encoded, 10*time.Minute).Err()
+	return OTPRedis.Set(ctx, key, encoded, expiration).Err()
 }
 
 func SendEmailWithRedisOTP() fiber.Handler {
@@ -126,6 +127,7 @@ func SendEmailWithRedisOTP() fiber.Handler {
 
 		otp := GenerateRedisOTP()
 		err = StoreRedisOTP(c.Context(), body.Email, otp, 10*time.Minute)
+		log.Println("OTP stored in Redis for email:", body.Email, "Error:", err)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(AuthResponse{
 				Message: "Failed to store OTP in Redis",

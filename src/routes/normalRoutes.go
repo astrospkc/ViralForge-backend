@@ -16,6 +16,7 @@ func NormalRoutes(app *fiber.App) {
 	app.Get("/metrics", adaptor.HTTPHandler(promhttp.Handler()))
 
 	auth := app.Group("/auth/v1")
+	auth.Post("/send_email_otp", handlers.SendEmailWithRedisOTP())
 	auth.Get("/", middleware.FetchUser(), handlers.GetUserFromId())
 	auth.Post("/register", handlers.RegisterUser())
 	auth.Post("/login", handlers.LoginUser())
